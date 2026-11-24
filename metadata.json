@@ -1,0 +1,8 @@
+{
+  "name": "مواعظ وعبر",
+  "description": "تطبيق ومنصة مواعظ وعبر الدعوية: خواطر إيمانية، المصحف الشريف، الأذكار والمسبحة، خدمة صدى الخير الدعوية، وقنوات التواصل الرسمية منذ ٢٠١٥.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

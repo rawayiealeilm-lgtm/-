@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#006a46" />
+      <stop offset="55%" stop-color="#008559" />
+      <stop offset="100%" stop-color="#004c6b" />
+    </linearGradient>
+    <linearGradient id="ml_emerald" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#6ee7b7" />
+      <stop offset="100%" stop-color="#047857" />
+    </linearGradient>
+    <linearGradient id="ml_cyan" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#67e8f9" />
+      <stop offset="100%" stop-color="#0284c7" />
+    </linearGradient>
+    <linearGradient id="ml_gold" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fef08a" />
+      <stop offset="100%" stop-color="#d97706" />
+    </linearGradient>
+    <linearGradient id="ml_rose" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fecdd3" />
+      <stop offset="100%" stop-color="#e11d48" />
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="108" fill="url(#bg)" />
+  <circle cx="256" cy="256" r="196" fill="none" stroke="url(#ml_gold)" stroke-width="6" opacity="0.65" />
+  <g transform="translate(256, 256) scale(3.5)">
+    <path d="M 0 0 C 16 -18, 25 -42, 0 -52 C -25 -42, -16 -18, 0 0 Z" fill="url(#ml_emerald)" />
+    <path d="M 0 0 C 20 -4, 38 -15, 40 -40 C 15 -38, 4 -20, 0 0 Z" fill="url(#ml_gold)" opacity="0.95" />
+    <path d="M 0 0 C 18 16, 42 25, 52 0 C 42 -25, 18 -16, 0 0 Z" fill="url(#ml_cyan)" />
+    <path d="M 0 0 C 4 20, 15 38, 40 40 C 38 15, 20 4, 0 0 Z" fill="url(#ml_emerald)" opacity="0.92" />
+    <path d="M 0 0 C -16 18, -25 42, 0 52 C 25 42, 16 18, 0 0 Z" fill="url(#ml_gold)" />
+    <path d="M 0 0 C -20 4, -38 15, -40 40 C -15 38, -4 20, 0 0 Z" fill="url(#ml_rose)" opacity="0.92" />
+    <path d="M 0 0 C -18 -16, -42 -25, -52 0 C -42 25, -18 16, 0 0 Z" fill="url(#ml_cyan)" />
+    <path d="M 0 0 C -4 -20, -15 -38, -40 -40 C -38 -15, -20 -4, 0 0 Z" fill="url(#ml_emerald)" opacity="0.92" />
+    <circle cx="0" cy="0" r="13" fill="#042017" stroke="url(#ml_gold)" stroke-width="2.2" />
+    <path d="M -4 -6 A 7 7 0 1 0 6 4 A 5 5 0 1 1 -4 -6 Z" fill="url(#ml_gold)" />
+  </g>
+</svg>
