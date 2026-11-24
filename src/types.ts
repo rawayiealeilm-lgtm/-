@@ -16,6 +16,7 @@ export type NavTab =
   | 'deaf-mute'
   | 'channels'
   | 'bookmarks'
+  | 'about-support'
   | 'about'
   | 'support'
   | 'post-detail'
@@ -37,7 +38,49 @@ export type Language = 'ar' | 'en';
 export type CardTheme = 'emerald' | 'azure' | 'gold' | 'midnight';
 export type MediaType = 'quote' | 'sada' | 'video' | 'audio';
 export type AdminGesture = 'long_press' | 'multi_tap';
-export type AdminRole = 'admin' | 'editor';
+export type AdminRole = 'admin' | 'editor' | 'supervisor';
+export type AdminSectionScope =
+  | 'all'
+  | 'posts'
+  | 'fatawa'
+  | 'mother-oasis'
+  | 'deaf-mute'
+  | 'adhkar-books'
+  | 'live-support';
+
+export type MeetVisibilityMode =
+  | 'hidden_admin_only'
+  | 'deaf_mute_invited'
+  | 'all_subscribers';
+
+export interface AdminMeetConfig {
+  visibility: MeetVisibilityMode;
+  activeRoomUrl: string;
+  roomLabel?: string;
+  updatedAt?: string;
+}
+
+export interface LiveSupportMessage {
+  id: string;
+  senderRole: 'visitor' | 'admin' | 'system';
+  senderName: string;
+  text: string;
+  meetInviteUrl?: string;
+  createdAt: string;
+}
+
+export interface LiveSupportSession {
+  id: string;
+  visitorName: string;
+  topic: 'general' | 'deaf_mute' | 'interview' | 'ai_escalation';
+  ticketNumber?: string;
+  isDeafMute?: boolean;
+  meetInviteUrl?: string;
+  status: 'open' | 'closed';
+  createdAt: string;
+  updatedAt: string;
+  messages: LiveSupportMessage[];
+}
 
 export type EmblemVariant = 'pinwheel' | 'crescent' | 'dome' | 'star' | 'book';
 
@@ -434,6 +477,42 @@ export interface SiteAppearanceConfig {
   maintenanceMode: boolean;
 }
 
+export interface DeafMuteVideoItem {
+  id: string;
+  title: string;
+  description: string;
+  benefitText?: string;
+  youtubeUrl?: string;
+  status: 'published' | 'upcoming';
+  category: string;
+  managerName: string;
+  createdAt: string;
+}
+
+export interface CustomAdhkarItem {
+  id: string;
+  chapterId: string;
+  title?: string;
+  text: string;
+  fadl?: string;
+  targetCount: number;
+  source: string;
+  createdAt?: string;
+}
+
+export interface CustomBookItem {
+  id: string;
+  section: 'hajouri' | 'imams' | 'students';
+  title: string;
+  author: string;
+  category: string;
+  summary?: string;
+  pdfUrl: string;
+  pages?: number;
+  sizeLabel?: string;
+  createdAt?: string;
+}
+
 export interface BootstrapSnapshot {
   posts: Post[];
   fatawa: FatwaItem[];
@@ -451,7 +530,11 @@ export interface BootstrapSnapshot {
   permanentArchive?: PermanentArchiveItem[];
   motherOasisItems?: MotherOasisItem[];
   visitorReviews?: VisitorReviewItem[];
+  deafMuteVideos?: DeafMuteVideoItem[];
+  customAdhkar?: CustomAdhkarItem[];
+  customBooks?: CustomBookItem[];
   siteAppearance?: SiteAppearanceConfig;
+  meetConfig?: AdminMeetConfig;
   gesture: AdminGesture;
   cachedAt: string;
 }

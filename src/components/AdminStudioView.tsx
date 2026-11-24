@@ -2,8 +2,10 @@ import {
   AlertTriangle,
   BarChart3,
   Bell,
+  BookOpen,
   Bot,
   CheckCircle2,
+  Cloud,
   Copy,
   Download,
   Edit3,
@@ -12,6 +14,7 @@ import {
   EyeOff,
   FileAudio,
   FolderHeart,
+  HandHeart,
   Inbox,
   LayoutTemplate,
   Link as LinkIcon,
@@ -21,6 +24,7 @@ import {
   MousePointerClick,
   Palette,
   Plus,
+  Radio,
   RefreshCw,
   RotateCcw,
   Scale,
@@ -32,6 +36,7 @@ import {
   Trash2,
   Upload,
   UserPlus,
+  Video,
   X,
 } from 'lucide-react';
 import {useCallback, useEffect, useRef, useState, type ChangeEvent} from 'react';
@@ -45,15 +50,22 @@ import {
 } from '../data/seed';
 import type {
   AdminGesture,
+  AdminMeetConfig,
   AdminRole,
+  AdminSectionScope,
   AppIcons,
   AutomationSettings,
   CardTheme,
   ColorScheme,
+  CustomAdhkarItem,
+  CustomBookItem,
+  DeafMuteVideoItem,
   EmblemVariant,
   FatwaItem,
   FatwaScholarId,
+  LiveSupportSession,
   MediaType,
+  MeetVisibilityMode,
   MotherOasisChapter,
   MotherOasisItem,
   NafahatMeta,
@@ -65,6 +77,33 @@ import type {
   SuggestionItem,
   VolunteerItem,
 } from '../types';
+import {
+  cloudDeleteCustomAdhkar,
+  cloudDeleteCustomBook,
+  cloudDeleteDeafMuteVideo,
+  cloudDeleteFatwa,
+  cloudDeleteMotherOasis,
+  cloudDeletePost,
+  cloudSaveSiteSettings,
+  cloudUpsertCustomAdhkar,
+  cloudUpsertCustomBook,
+  cloudUpsertDeafMuteVideo,
+  cloudUpsertFatwa,
+  cloudUpsertMotherOasis,
+  cloudUpsertPost,
+  isTrustedAdminUser,
+  observeFirebaseAdminAuth,
+  signInAdminWithGoogle,
+  signOutFirebaseAdmin,
+} from '../utils/cloudSync';
+import {
+  DEFAULT_MEET_HOST_EMAIL,
+  connectGoogleMeetWithPopup,
+  createGoogleMeetSpace,
+  getConnectedMeetEmail,
+  hasMeetAccessToken,
+  initMeetOAuthObserver,
+} from '../utils/googleMeetOAuth';
 import {
   BrandEmblem,
   COLOR_SCHEME_STYLES,
@@ -96,6 +135,9 @@ export type AdminStudioTab =
   | 'studio'
   | 'messages'
   | 'mother-oasis'
+  | 'deaf-mute'
+  | 'adhkar-books'
+  | 'live-support'
   | 'analytics'
   | 'fatawa'
   | 'automation'
@@ -127,6 +169,7 @@ export function AdminStudioView({
   authToken,
   adminRole,
   adminUsername,
+  assignedSection = 'all',
   posts,
   fatawa,
   suggestions,
@@ -162,6 +205,14 @@ export function AdminStudioView({
   onUpdateMessages,
   motherOasisItems = [],
   onMotherOasisChange,
+  deafMuteVideos = [],
+  onDeafMuteVideosChange,
+  customAdhkar = [],
+  onCustomAdhkarChange,
+  customBooks = [],
+  onCustomBooksChange,
+  meetConfig,
+  onMeetConfigChange,
   onPreviewSite,
   onExitAdmin,
   onNotify,
@@ -169,6 +220,7 @@ export function AdminStudioView({
   authToken: string;
   adminRole: AdminRole;
   adminUsername: string;
+  assignedSection?: AdminSectionScope;
   posts: Post[];
   fatawa: FatwaItem[];
   suggestions: SuggestionItem[];
@@ -216,6 +268,14 @@ export function AdminStudioView({
   onUpdateMessages: (suggestions: SuggestionItem[], volunteers: VolunteerItem[]) => void;
   motherOasisItems?: MotherOasisItem[];
   onMotherOasisChange?: (items: MotherOasisItem[]) => void;
+  deafMuteVideos?: DeafMuteVideoItem[];
+  onDeafMuteVideosChange?: (items: DeafMuteVideoItem[]) => void;
+  customAdhkar?: CustomAdhkarItem[];
+  onCustomAdhkarChange?: (items: CustomAdhkarItem[]) => void;
+  customBooks?: CustomBookItem[];
+  onCustomBooksChange?: (items: CustomBookItem[]) => void;
+  meetConfig?: AdminMeetConfig;
+  onMeetConfigChange?: (cfg: AdminMeetConfig) => void;
   onPreviewSite?: () => void;
   onExitAdmin: () => void;
   onNotify: (msg: string) => void;
@@ -293,15 +353,81 @@ export function AdminStudioView({
   const [broadcastPost, setBroadcastPost] = useState<Post | null>(null);
 
   // Primary Admin: Delegated accounts, reset & backup
-  const [accounts, setAccounts] = useState<Array<{username: string; role: AdminRole}>>([]);
+  const [accounts, setAccounts] = useState<
+    Array<{username: string; role: AdminRole; assignedSection?: AdminSectionScope}>
+  >([]);
   const [newAccUser, setNewAccUser] = useState('');
   const [newAccPass, setNewAccPass] = useState('');
   const [newAccRole, setNewAccRole] = useState<AdminRole>('editor');
+  const [newAccSection, setNewAccSection] = useState<AdminSectionScope>('all');
   const [savingAccount, setSavingAccount] = useState(false);
   const [resettingCounters, setResettingCounters] = useState(false);
   const [analyticsRefreshKey, setAnalyticsRefreshKey] = useState(0);
   const [refreshingAI, setRefreshingAI] = useState(false);
   const [aiFeedback, setAiFeedback] = useState<{ok: boolean; text: string} | null>(null);
+
+  // Firebase Cloud Sync State
+  const [cloudUserEmail, setCloudUserEmail] = useState<string | null>(null);
+  const [cloudSyncBusy, setCloudSyncBusy] = useState(false);
+
+  // Deaf & Mute Videos Form State
+  const [dmTitle, setDmTitle] = useState('');
+  const [dmDesc, setDmDesc] = useState('');
+  const [dmBenefit, setDmBenefit] = useState('');
+  const [dmYoutube, setDmYoutube] = useState('');
+  const [dmCategory, setDmCategory] = useState('القرآن والإيمان');
+  const [dmStatus, setDmStatus] = useState<'published' | 'upcoming'>('published');
+  const [dmSaving, setDmSaving] = useState(false);
+
+  // Custom Adhkar & Books Form State
+  const [adhkarChapterId, setAdhkarChapterId] = useState('ch1_morning_evening');
+  const [adhkarTitle, setAdhkarTitle] = useState('');
+  const [adhkarText, setAdhkarText] = useState('');
+  const [adhkarFadl, setAdhkarFadl] = useState('');
+  const [adhkarCount, setAdhkarCount] = useState(1);
+  const [adhkarSaving, setAdhkarSaving] = useState(false);
+
+  const [bookSection, setBookSection] = useState<CustomBookItem['section']>('hajouri');
+  const [bookTitle, setBookTitle] = useState('');
+  const [bookAuthor, setBookAuthor] = useState('');
+  const [bookCategory, setBookCategory] = useState('العقيدة والمنهج');
+  const [bookSummary, setBookSummary] = useState('');
+  const [bookPdfUrl, setBookPdfUrl] = useState('coming_soon');
+  const [bookSaving, setBookSaving] = useState(false);
+
+  // Live WebSocket Support Inbox + Hidden Google Meet Config
+  const [liveSessions, setLiveSessions] = useState<LiveSupportSession[]>([]);
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
+  const [liveReplyText, setLiveReplyText] = useState('');
+  const [customMeetInviteUrl, setCustomMeetInviteUrl] = useState('');
+  const [editMeetConfig, setEditMeetConfig] = useState<AdminMeetConfig>(
+    meetConfig || {visibility: 'hidden_admin_only', activeRoomUrl: ''},
+  );
+  const [savingMeetCfg, setSavingMeetCfg] = useState(false);
+  const [meetOAuthConnected, setMeetOAuthConnected] = useState(() => hasMeetAccessToken());
+  const [meetConnectedEmail, setMeetConnectedEmail] = useState<string | null>(() => getConnectedMeetEmail());
+  const [meetConnecting, setMeetConnecting] = useState(false);
+  const [creatingMeetRoom, setCreatingMeetRoom] = useState(false);
+  const [confirmReplaceMeetRoom, setConfirmReplaceMeetRoom] = useState(false);
+  const adminWsRef = useRef<WebSocket | null>(null);
+
+  useEffect(() => {
+    if (meetConfig) setEditMeetConfig(meetConfig);
+  }, [meetConfig]);
+
+  useEffect(() => {
+    const unsub = observeFirebaseAdminAuth((u) => {
+      setCloudUserEmail(isTrustedAdminUser(u) ? u?.email || null : null);
+    });
+    const unsubMeet = initMeetOAuthObserver((connected, u) => {
+      setMeetOAuthConnected(connected);
+      setMeetConnectedEmail(connected ? u?.email || getConnectedMeetEmail() : null);
+    });
+    return () => {
+      unsub();
+      unsubMeet();
+    };
+  }, []);
 
   // Primary Admin: Automation & Appearance Studio State
   const [editAutomation, setEditAutomation] = useState<AutomationSettings>(automationSettings);
@@ -461,8 +587,9 @@ export function AdminStudioView({
         if (!res.ok) throw new Error();
         const data = (await res.json()) as {post: Post};
         onUpdatePost(data.post);
+        void cloudUpsertPost(data.post).catch(() => undefined);
         resetComposer();
-        onNotify('تم تحديث الموعظة وحفظها على الرابط العام بنجاح');
+        onNotify('تم تحديث الموعظة وحفظها في السحابة والرابط العام بنجاح');
       } else {
         if (targetPlatforms.length === 0) {
           onNotify('اختر منصة واحدة على الأقل للبث');
@@ -487,6 +614,7 @@ export function AdminStudioView({
         if (!res.ok) throw new Error();
         const data = (await res.json()) as {post: Post};
         onPublishPost(data.post);
+        void cloudUpsertPost(data.post).catch(() => undefined);
         resetComposer();
         if (broadcastAll) {
           await triggerMultiSiteBroadcast(data.post);
@@ -509,6 +637,7 @@ export function AdminStudioView({
       });
       if (!res.ok) throw new Error();
       onDeletePost(id);
+      void cloudDeletePost(id).catch(() => undefined);
       if (editingPostId === id) resetComposer();
       onNotify('تم حذف الموعظة بنجاح');
     } catch {
@@ -538,10 +667,11 @@ export function AdminStudioView({
       if (!res.ok) throw new Error();
       const data = (await res.json()) as {fatwa: FatwaItem};
       onAddFatwa(data.fatwa);
+      void cloudUpsertFatwa(data.fatwa).catch(() => undefined);
       setFatwaQuestion('');
       setFatwaAnswer('');
       setFatwaSource('');
-      onNotify('تمت إضافة الفتوى بنجاح وحفظها على الرابط العام');
+      onNotify('تمت إضافة الفتوى بنجاح وحفظها في السحابة والرابط العام');
     } catch {
       onNotify('تعذر إضافة الفتوى حالياً');
     } finally {
@@ -557,6 +687,7 @@ export function AdminStudioView({
       });
       if (!res.ok) throw new Error();
       onDeleteFatwa(id);
+      void cloudDeleteFatwa(id).catch(() => undefined);
       onNotify('تم حذف الفتوى بنجاح');
     } catch {
       onNotify('تعذر حذف الفتوى حالياً');
@@ -567,6 +698,7 @@ export function AdminStudioView({
     setSavingConfig(true);
     try {
       await onSaveSiteConfig(editConfig);
+      void cloudSaveSiteSettings(editConfig, editHandle, editAppearance.maintenanceMode).catch(() => undefined);
     } finally {
       setSavingConfig(false);
     }
@@ -649,14 +781,17 @@ export function AdminStudioView({
           username: newAccUser.trim(),
           password: newAccPass.trim(),
           role: newAccRole,
+          assignedSection: newAccRole === 'admin' ? 'all' : newAccSection,
         }),
       });
       if (!res.ok) throw new Error();
-      const data = (await res.json()) as {accounts: Array<{username: string; role: AdminRole}>};
+      const data = (await res.json()) as {
+        accounts: Array<{username: string; role: AdminRole; assignedSection?: AdminSectionScope}>;
+      };
       setAccounts(data.accounts);
       setNewAccUser('');
       setNewAccPass('');
-      onNotify('تم حفظ الحساب الجديد ويمكن الآن الدخول والتعديل على نفس الرابط العام');
+      onNotify('تم حفظ الحساب الجديد ويمكن الآن الدخول والتعديل وفق الصلاحية المحددة');
     } catch {
       onNotify('تعذر حفظ الحساب');
     } finally {
@@ -671,7 +806,9 @@ export function AdminStudioView({
         headers: authHeaders,
       });
       if (!res.ok) throw new Error();
-      const data = (await res.json()) as {accounts: Array<{username: string; role: AdminRole}>};
+      const data = (await res.json()) as {
+        accounts: Array<{username: string; role: AdminRole; assignedSection?: AdminSectionScope}>;
+      };
       setAccounts(data.accounts);
       onNotify(`تمت إزالة حساب ${username}`);
     } catch {
@@ -746,26 +883,47 @@ export function AdminStudioView({
     suggestions.filter((s) => (s.status || 'new') === 'new').length +
     volunteers.filter((v) => (v.status || 'new') === 'new').length;
 
-  const visibleTabs: Array<{id: AdminStudioTab; label: string; Icon: typeof Send; badge?: number}> = [
-    {id: 'studio', label: 'المواعظ والمنشورات', Icon: Send},
+  const allTabs: Array<{
+    id: AdminStudioTab;
+    label: string;
+    Icon: typeof Send;
+    badge?: number;
+    scope?: AdminSectionScope;
+    primaryOnly?: boolean;
+  }> = [
+    {id: 'studio', label: 'المواعظ والمنشورات', Icon: Send, scope: 'all'},
     {
       id: 'messages',
       label: 'رسائل وطلبات الزوار',
       Icon: Inbox,
       badge: newMessagesCount > 0 ? newMessagesCount : totalMessagesCount,
+      scope: 'all',
     },
-    {id: 'fatawa', label: 'إدارة الفتاوى', Icon: Scale},
-    {id: 'mother-oasis', label: 'واحة الداعية أمي', Icon: FolderHeart},
-    ...(isPrimaryAdmin
-      ? [
-          {id: 'analytics' as const, label: 'الإحصائيات الشهرية', Icon: BarChart3},
-          {id: 'automation' as const, label: 'بوت النشر الآلي', Icon: Bot},
-          {id: 'appearance' as const, label: 'المظهر والسطوع والصيانة', Icon: Palette},
-          {id: 'page-config' as const, label: 'المسميات والأزرار', Icon: LayoutTemplate},
-          {id: 'links-icons' as const, label: 'الروابط والأيقونات والأمان', Icon: LinkIcon},
-        ]
-      : []),
+    {
+      id: 'live-support',
+      label: 'الدردشة الحية و Meet',
+      Icon: Radio,
+      badge: liveSessions.length > 0 ? liveSessions.length : undefined,
+      scope: 'deaf-mute',
+    },
+    {id: 'fatawa', label: 'إدارة الفتاوى', Icon: Scale, scope: 'fatawa'},
+    {id: 'mother-oasis', label: 'واحة الداعية أمي', Icon: FolderHeart, scope: 'mother-oasis'},
+    {id: 'deaf-mute', label: 'قسم الصم والبكم (فيديو)', Icon: HandHeart, scope: 'deaf-mute'},
+    {id: 'adhkar-books', label: 'الأذكار والمكتبات العلمية', Icon: BookOpen, scope: 'adhkar-books'},
+    {id: 'analytics', label: 'الإحصائيات الشهرية', Icon: BarChart3, primaryOnly: true},
+    {id: 'automation', label: 'بوت النشر الآلي', Icon: Bot, primaryOnly: true},
+    {id: 'appearance', label: 'المظهر والسطوع والصيانة', Icon: Palette, primaryOnly: true},
+    {id: 'page-config', label: 'المسميات والأزرار', Icon: LayoutTemplate, primaryOnly: true},
+    {id: 'links-icons', label: 'الروابط والأيقونات والأمان', Icon: LinkIcon, primaryOnly: true},
   ];
+
+  const visibleTabs = allTabs.filter((t) => {
+    if (isPrimaryAdmin) return true;
+    if (t.primaryOnly) return false;
+    if (!assignedSection || assignedSection === 'all') return true;
+    if (t.id === 'studio' || t.id === 'messages' || t.id === 'live-support') return true;
+    return t.scope === assignedSection;
+  });
 
   const handleSaveAutomationClick = async () => {
     if (!onSaveAutomation) return;
@@ -943,6 +1101,8 @@ export function AdminStudioView({
         onNotify(data.error || 'تعذر نشر المادة في واحة الداعية أمي.');
         return;
       }
+      const newest = data.items[0];
+      if (newest) void cloudUpsertMotherOasis(newest).catch(() => undefined);
       onMotherOasisChange?.(data.items);
       setOasisTitle('');
       setOasisBody('');
@@ -966,15 +1126,357 @@ export function AdminStudioView({
         return;
       }
       onMotherOasisChange?.(data.items);
+      void cloudDeleteMotherOasis(id).catch(() => undefined);
       onNotify('تم حذف المادة من واحة الداعية أمي.');
     } catch {
       onNotify('تعذر الحذف حالياً.');
     }
   };
 
+  const handleSaveDeafMuteVideo = async () => {
+    if (!dmTitle.trim() || !dmDesc.trim()) {
+      onNotify('يرجى كتابة عنوان الفيديو والوصف أولاً');
+      return;
+    }
+    setDmSaving(true);
+    try {
+      const res = await fetch('/api/admin/deaf-mute-videos', {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify({
+          title: dmTitle.trim(),
+          description: dmDesc.trim(),
+          benefitText: dmBenefit.trim() || undefined,
+          youtubeUrl: dmYoutube.trim() || undefined,
+          category: dmCategory,
+          status: dmStatus,
+        }),
+      });
+      const data = (await res.json()) as {items?: DeafMuteVideoItem[]; created?: DeafMuteVideoItem; error?: string};
+      if (!res.ok || !Array.isArray(data.items)) {
+        onNotify(data.error || 'تعذر حفظ فيديو قسم الصم والبكم');
+        return;
+      }
+      if (data.created) void cloudUpsertDeafMuteVideo(data.created).catch(() => undefined);
+      onDeafMuteVideosChange?.(data.items);
+      setDmTitle('');
+      setDmDesc('');
+      setDmBenefit('');
+      setDmYoutube('');
+      onNotify('تم حفظ الفيديو في قسم الصم والبكم والسحابة بنجاح');
+    } catch {
+      onNotify('تعذر الاتصال بالخادم');
+    } finally {
+      setDmSaving(false);
+    }
+  };
+
+  const handleDeleteDeafMuteVideo = async (id: string) => {
+    try {
+      const res = await fetch(`/api/admin/deaf-mute-videos/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+        headers: {Authorization: `Bearer ${authToken}`},
+      });
+      const data = (await res.json()) as {items?: DeafMuteVideoItem[]};
+      if (res.ok && Array.isArray(data.items)) {
+        onDeafMuteVideosChange?.(data.items);
+        void cloudDeleteDeafMuteVideo(id).catch(() => undefined);
+        onNotify('تم حذف الفيديو من قسم الصم والبكم');
+      }
+    } catch {
+      onNotify('تعذر حذف الفيديو');
+    }
+  };
+
+  const handleSaveCustomAdhkar = async () => {
+    if (!adhkarText.trim()) {
+      onNotify('يرجى كتابة نص الذكر أو الدعاء أولاً');
+      return;
+    }
+    setAdhkarSaving(true);
+    try {
+      const res = await fetch('/api/admin/adhkar', {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify({
+          chapterId: adhkarChapterId,
+          title: adhkarTitle.trim() || undefined,
+          text: adhkarText.trim(),
+          fadl: adhkarFadl.trim() || undefined,
+          targetCount: adhkarCount,
+        }),
+      });
+      const data = (await res.json()) as {items?: CustomAdhkarItem[]; created?: CustomAdhkarItem; error?: string};
+      if (!res.ok || !Array.isArray(data.items)) {
+        onNotify(data.error || 'تعذر حفظ الذكر');
+        return;
+      }
+      if (data.created) void cloudUpsertCustomAdhkar(data.created).catch(() => undefined);
+      onCustomAdhkarChange?.(data.items);
+      setAdhkarTitle('');
+      setAdhkarText('');
+      setAdhkarFadl('');
+      setAdhkarCount(1);
+      onNotify('تمت إضافة الذكر وحفظه سحابياً بنجاح');
+    } catch {
+      onNotify('تعذر الاتصال بالخادم');
+    } finally {
+      setAdhkarSaving(false);
+    }
+  };
+
+  const handleDeleteCustomAdhkar = async (id: string) => {
+    try {
+      const res = await fetch(`/api/admin/adhkar/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+        headers: {Authorization: `Bearer ${authToken}`},
+      });
+      const data = (await res.json()) as {items?: CustomAdhkarItem[]};
+      if (res.ok && Array.isArray(data.items)) {
+        onCustomAdhkarChange?.(data.items);
+        void cloudDeleteCustomAdhkar(id).catch(() => undefined);
+        onNotify('تم حذف الذكر المخصص');
+      }
+    } catch {
+      onNotify('تعذر حذف الذكر');
+    }
+  };
+
+  const handleSaveCustomBook = async () => {
+    if (!bookTitle.trim() || !bookAuthor.trim()) {
+      onNotify('يرجى إدخال عنوان الكتاب واسم المؤلف');
+      return;
+    }
+    setBookSaving(true);
+    try {
+      const res = await fetch('/api/admin/books', {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify({
+          section: bookSection,
+          title: bookTitle.trim(),
+          author: bookAuthor.trim(),
+          category: bookCategory.trim() || 'كتب علمية',
+          summary: bookSummary.trim() || undefined,
+          pdfUrl: bookPdfUrl.trim() || 'coming_soon',
+        }),
+      });
+      const data = (await res.json()) as {items?: CustomBookItem[]; created?: CustomBookItem; error?: string};
+      if (!res.ok || !Array.isArray(data.items)) {
+        onNotify(data.error || 'تعذر حفظ الكتاب');
+        return;
+      }
+      if (data.created) void cloudUpsertCustomBook(data.created).catch(() => undefined);
+      onCustomBooksChange?.(data.items);
+      setBookTitle('');
+      setBookAuthor('');
+      setBookSummary('');
+      setBookPdfUrl('coming_soon');
+      onNotify('تم اعتماد الكتاب وحفظه في السحابة والمكتبة العلمية');
+    } catch {
+      onNotify('تعذر الاتصال بالخادم');
+    } finally {
+      setBookSaving(false);
+    }
+  };
+
+  const handleDeleteCustomBook = async (id: string) => {
+    try {
+      const res = await fetch(`/api/admin/books/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+        headers: {Authorization: `Bearer ${authToken}`},
+      });
+      const data = (await res.json()) as {items?: CustomBookItem[]};
+      if (res.ok && Array.isArray(data.items)) {
+        onCustomBooksChange?.(data.items);
+        void cloudDeleteCustomBook(id).catch(() => undefined);
+        onNotify('تم حذف الكتاب من القائمة');
+      }
+    } catch {
+      onNotify('تعذر حذف الكتاب');
+    }
+  };
+
+  // Real-time Admin WebSocket Connection for Live Support & Interviews
+  useEffect(() => {
+    if (!authToken) return;
+    fetch('/api/admin/live-support', {headers: {Authorization: `Bearer ${authToken}`}})
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: {sessions?: LiveSupportSession[]} | null) => {
+        if (d?.sessions) setLiveSessions(d.sessions);
+      })
+      .catch(() => undefined);
+
+    const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const ws = new WebSocket(`${proto}//${window.location.host}/ws/live-support`);
+    adminWsRef.current = ws;
+
+    ws.onopen = () => {
+      ws.send(JSON.stringify({type: 'join', role: 'admin', token: authToken}));
+    };
+
+    ws.onmessage = (ev) => {
+      try {
+        const pkt = JSON.parse(String(ev.data)) as {
+          type?: string;
+          sessions?: LiveSupportSession[];
+          session?: LiveSupportSession;
+        };
+        if (pkt.type === 'sessions' && Array.isArray(pkt.sessions)) {
+          setLiveSessions(pkt.sessions);
+        } else if (pkt.type === 'session_update' && pkt.session) {
+          setLiveSessions((prev) => [
+            pkt.session!,
+            ...prev.filter((s) => s.id !== pkt.session!.id),
+          ]);
+        }
+      } catch {
+        // Ignore malformed packets
+      }
+    };
+
+    return () => {
+      ws.close();
+      adminWsRef.current = null;
+    };
+  }, [authToken]);
+
+  const sendAdminLiveReply = (sessionId: string) => {
+    const trimmed = liveReplyText.trim();
+    if (!trimmed) return;
+    if (adminWsRef.current && adminWsRef.current.readyState === WebSocket.OPEN) {
+      adminWsRef.current.send(
+        JSON.stringify({
+          type: 'message',
+          sessionId,
+          senderRole: 'admin',
+          senderName: adminUsername,
+          text: trimmed,
+        }),
+      );
+      setLiveReplyText('');
+    } else {
+      onNotify('جارٍ إعادة الاتصال بقناة الدردشة الحية...');
+    }
+  };
+
+  const sendPrivateMeetInviteToSession = (sessionId: string) => {
+    const targetUrl = (customMeetInviteUrl.trim() || editMeetConfig.activeRoomUrl || '').trim();
+    if (!targetUrl.startsWith('https://')) {
+      onNotify('يرجى إدخال رابط Google Meet يبدأ بـ https:// أولاً');
+      return;
+    }
+    if (adminWsRef.current && adminWsRef.current.readyState === WebSocket.OPEN) {
+      adminWsRef.current.send(
+        JSON.stringify({
+          type: 'meet_invite',
+          sessionId,
+          meetUrl: targetUrl,
+        }),
+      );
+      setCustomMeetInviteUrl('');
+      onNotify('تم إرسال رابط دعوة Google Meet سرّاً لهذه الجلسة فقط');
+    }
+  };
+
+  const handleSaveMeetVisibilityConfig = async (overrideCfg?: AdminMeetConfig) => {
+    const payload = overrideCfg || editMeetConfig;
+    setSavingMeetCfg(true);
+    try {
+      const res = await fetch('/api/admin/meet-config', {
+        method: 'PUT',
+        headers: authHeaders,
+        body: JSON.stringify(payload),
+      });
+      const data = (await res.json()) as {meetConfig?: AdminMeetConfig; error?: string};
+      if (!res.ok || !data.meetConfig) {
+        onNotify(data.error || 'تعذر حفظ إعدادات Google Meet');
+        return;
+      }
+      setEditMeetConfig(data.meetConfig);
+      onMeetConfigChange?.(data.meetConfig);
+      onNotify('تم حفظ إعدادات Google Meet المخفية بنجاح');
+    } catch {
+      onNotify('تعذر الاتصال بالخادم');
+    } finally {
+      setSavingMeetCfg(false);
+    }
+  };
+
+  const handleConnectGoogleMeet = async () => {
+    setMeetConnecting(true);
+    try {
+      const {user} = await connectGoogleMeetWithPopup(DEFAULT_MEET_HOST_EMAIL);
+      setMeetOAuthConnected(true);
+      setMeetConnectedEmail(user.email || DEFAULT_MEET_HOST_EMAIL);
+      if (user.email && user.email.toLowerCase() !== DEFAULT_MEET_HOST_EMAIL) {
+        onNotify(`تم الربط بحساب ${user.email} — يُفضل اختيار ${DEFAULT_MEET_HOST_EMAIL} لإنشاء غرف Meet`);
+      } else {
+        onNotify(`تم ربط Google Meet بنجاح على الحساب ${DEFAULT_MEET_HOST_EMAIL}`);
+      }
+    } catch (err) {
+      onNotify(err instanceof Error ? err.message : 'تعذر تسجيل الدخول عبر Google لإنشاء الغرف');
+    } finally {
+      setMeetConnecting(false);
+    }
+  };
+
+  const handleCreateMeetSpace = async (target: 'default' | 'session', skipConfirm = false) => {
+    if (target === 'default' && editMeetConfig.activeRoomUrl.trim() && !skipConfirm) {
+      setConfirmReplaceMeetRoom(true);
+      return;
+    }
+    setConfirmReplaceMeetRoom(false);
+    setCreatingMeetRoom(true);
+    try {
+      if (!hasMeetAccessToken()) {
+        const {user} = await connectGoogleMeetWithPopup(DEFAULT_MEET_HOST_EMAIL);
+        setMeetOAuthConnected(true);
+        setMeetConnectedEmail(user.email || DEFAULT_MEET_HOST_EMAIL);
+      }
+      const space = await createGoogleMeetSpace();
+      if (target === 'session') {
+        setCustomMeetInviteUrl(space.meetingUri);
+        onNotify(`تم إنشاء غرفة Google Meet خاصة (${space.meetingCode || 'جاهزة'}) — اضغط إرسال دعوة Meet خاصة`);
+      } else {
+        const nextCfg: AdminMeetConfig = {...editMeetConfig, activeRoomUrl: space.meetingUri};
+        setEditMeetConfig(nextCfg);
+        await handleSaveMeetVisibilityConfig(nextCfg);
+        onNotify(`تم إنشاء وحفظ غرفة Google Meet بنجاح: ${space.meetingUri}`);
+      }
+    } catch (err) {
+      if (err instanceof Error && err.message === 'MEET_AUTH_REQUIRED') {
+        setMeetOAuthConnected(false);
+        setMeetConnectedEmail(null);
+        onNotify(`يرجى تسجيل الدخول بحساب ${DEFAULT_MEET_HOST_EMAIL} أولاً لتفعيل إنشاء غرف Google Meet`);
+      } else {
+        onNotify(err instanceof Error ? err.message : 'تعذر إنشاء غرفة Google Meet');
+      }
+    } finally {
+      setCreatingMeetRoom(false);
+    }
+  };
+
+  const handleToggleFirebaseCloud = async () => {
+    setCloudSyncBusy(true);
+    try {
+      if (cloudUserEmail) {
+        await signOutFirebaseAdmin();
+        onNotify('تم فصل جلسة المزامنة السحابية Firebase');
+      } else {
+        const u = await signInAdminWithGoogle();
+        onNotify(`تم تفعيل المزامنة السحابية لـ ${u.email} — تُحفظ إضافاتك في السحابة دائماً`);
+      }
+    } catch (err) {
+      onNotify(err instanceof Error ? err.message : 'تعذر تسجيل الدخول السحابي');
+    } finally {
+      setCloudSyncBusy(false);
+    }
+  };
+
   const handleTransferOwnershipToPersonalEmail = async () => {
     if (transferPassword.trim().length < 4) {
-      onNotify('أدخل كلمة مرور قوية (٤ أحرف فأكثر) للحساب الشخصي ax1ax70@gmail.com');
+      onNotify('أدخل كلمة مرور قوية (٤ أحرف فأكثر)');
       return;
     }
     setTransferBusy(true);
@@ -986,15 +1488,18 @@ export function AdminStudioView({
           username: 'ax1ax70@gmail.com',
           password: transferPassword.trim(),
           role: 'admin',
+          assignedSection: 'all',
         }),
       });
       if (!res.ok) throw new Error();
-      const data = (await res.json()) as {accounts: Array<{username: string; role: AdminRole}>};
+      const data = (await res.json()) as {
+        accounts: Array<{username: string; role: AdminRole; assignedSection?: AdminSectionScope}>;
+      };
       setAccounts(data.accounts);
       setTransferPassword('');
-      onNotify('تم تفعيل صلاحية الإدارة الكاملة لحسابك الشخصي ax1ax70@gmail.com بنجاح!');
+      onNotify('تم تفعيل صلاحية الإدارة الكاملة لحساب المشرف بنجاح');
     } catch {
-      onNotify('تعذر تفعيل حساب الإدارة الشخصي حالياً.');
+      onNotify('تعذر تفعيل حساب الإدارة حالياً.');
     } finally {
       setTransferBusy(false);
     }
@@ -1011,10 +1516,15 @@ export function AdminStudioView({
           <div>
             <div className="flex flex-wrap items-center gap-2">
               <p className="text-sm sm:text-base font-extrabold text-white">
-                {isPrimaryAdmin ? 'لوحة تحكم المشرف العام المستقلة' : 'لوحة المشرف ومحرر المحتوى'} ({adminUsername})
+                {isPrimaryAdmin
+                  ? 'لوحة تحكم المشرف العام المستقلة'
+                  : adminRole === 'supervisor'
+                    ? 'لوحة مشرف القسم المخصصة'
+                    : 'لوحة المشرف ومحرر المحتوى'}{' '}
+                ({adminUsername})
               </p>
               <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-lg bg-[#006a46] text-emerald-100">
-                {isPrimaryAdmin ? 'مدير · جلسة دائمة' : 'مشرف · جلسة دائمة'}
+                {isPrimaryAdmin ? 'مدير · جلسة دائمة' : `${adminRole} · ${assignedSection}`}
               </span>
             </div>
             <p className="text-xs text-slate-300 mt-0.5">
@@ -1024,6 +1534,20 @@ export function AdminStudioView({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            disabled={cloudSyncBusy}
+            onClick={() => void handleToggleFirebaseCloud()}
+            className={`min-h-[42px] px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors ${
+              cloudUserEmail
+                ? 'bg-emerald-700 text-white'
+                : 'bg-amber-400 text-slate-950 hover:bg-amber-300'
+            }`}
+          >
+            <Cloud className="w-4 h-4" />
+            <span>{cloudUserEmail ? 'مزامنة السحابة مفعّلة' : 'ربط سحابة Firebase'}</span>
+          </button>
+
           {/* Live Ticket Notification Bell */}
           <button
             type="button"
@@ -1651,6 +2175,10 @@ export function AdminStudioView({
           suggestions={suggestions}
           volunteers={volunteers}
           onUpdateMessages={onUpdateMessages}
+          onOpenLiveSession={(sid) => {
+            setSelectedSessionId(sid);
+            setTab('live-support');
+          }}
           onNotify={onNotify}
         />
       )}
@@ -1822,8 +2350,8 @@ export function AdminStudioView({
               {key: 'navLibrary' as const, label: 'مسمى تبويب الأرشيف والمكتبات'},
               {key: 'navChannels' as const, label: 'مسمى تبويب المنصات'},
               {key: 'navBookmarks' as const, label: 'مسمى تبويب المحفوظات'},
-              {key: 'navAbout' as const, label: 'مسمى تبويب من نحن'},
-              {key: 'navSupport' as const, label: 'مسمى تبويب الدعم'},
+              {key: 'navAbout' as const, label: 'مسمى صفحة عن الموقع والدعم والمشاركة'},
+              {key: 'navSupport' as const, label: 'عنوان متابعة الطلبات والمشاركة'},
               {key: 'sadaTitle' as const, label: 'عنوان صفحة الأرشيف والمكتبات'},
               {key: 'sadaSubtitle' as const, label: 'وصف صفحة الأرشيف والمكتبات'},
               {key: 'fatawaTitle' as const, label: 'عنوان صفحة الفتاوى'},
@@ -1832,11 +2360,11 @@ export function AdminStudioView({
               {key: 'hisnSubtitle' as const, label: 'وصف صفحة الأذكار والأدعية الجامعة'},
               {key: 'channelsTitle' as const, label: 'عنوان صفحة القنوات'},
               {key: 'channelsSubtitle' as const, label: 'وصف صفحة القنوات'},
-              {key: 'aboutTitle' as const, label: 'عنوان صفحة من نحن'},
-              {key: 'aboutSubtitle' as const, label: 'وصف صفحة من نحن'},
-              {key: 'supportTitle' as const, label: 'عنوان صفحة الدعم'},
-              {key: 'supportSubtitle' as const, label: 'وصف صفحة الدعم'},
-              {key: 'supportEmail' as const, label: 'بريد الدعم والمساعدة الرسمي'},
+              {key: 'aboutTitle' as const, label: 'عنوان صفحة عن الموقع والدعم والمشاركة'},
+              {key: 'aboutSubtitle' as const, label: 'وصف صفحة عن الموقع والدعم والمشاركة'},
+              {key: 'supportTitle' as const, label: 'عنوان نافذة الدعم ومتابعة الطلبات'},
+              {key: 'supportSubtitle' as const, label: 'وصف نافذة الدعم ومتابعة الطلبات'},
+              {key: 'supportEmail' as const, label: 'بريد إداري داخلي (محجوب عن الزوار)'},
               {key: 'modernUxClause' as const, label: 'بند التصميم العصري وسهولة التصفح'},
             ].map((field) => (
               <div key={field.key} className="space-y-1">
@@ -1852,7 +2380,7 @@ export function AdminStudioView({
                   <input
                     type={field.key === 'supportEmail' ? 'email' : 'text'}
                     dir={field.key === 'supportEmail' ? 'ltr' : 'rtl'}
-                    placeholder={field.key === 'supportEmail' ? 'ax1ax70@gmail.com' : undefined}
+                    placeholder={field.key === 'supportEmail' ? 'محجوب تلقائياً عن الزوار' : undefined}
                     value={editConfig[field.key]}
                     onChange={(e) => updateConfigField(field.key, e.target.value)}
                     className="w-full min-h-[42px] rounded-xl bg-[#e8f6ff] dark:bg-[#112921] px-3.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#006a46]"
@@ -2216,7 +2744,11 @@ export function AdminStudioView({
                     <div className="min-w-0">
                       <p className="text-sm font-bold text-[#0e1d25] dark:text-white truncate">{acc.username}</p>
                       <span className="text-[11px] font-semibold text-[#006a46] dark:text-[#6cdba6]">
-                        {acc.role === 'admin' ? 'مدير ومسؤول رئيسي' : 'مشرف ومحرر محتوى'}
+                        {acc.role === 'admin'
+                          ? 'مدير ومسؤول رئيسي'
+                          : acc.role === 'supervisor'
+                            ? `مشرف قسم (${acc.assignedSection || 'all'})`
+                            : `محرر محتوى (${acc.assignedSection || 'all'})`}
                       </span>
                     </div>
                     {acc.username !== 'moalwbri' && (
@@ -2234,7 +2766,7 @@ export function AdminStudioView({
               </div>
             )}
 
-            <div className="grid grid-cols-1 sm:grid-cols-4 gap-2.5">
+            <div className="grid grid-cols-1 sm:grid-cols-5 gap-2.5">
               <input
                 type="text"
                 value={newAccUser}
@@ -2252,10 +2784,25 @@ export function AdminStudioView({
               <select
                 value={newAccRole}
                 onChange={(e) => setNewAccRole(e.target.value as AdminRole)}
-                className="min-h-[44px] rounded-xl bg-[#e8f6ff] dark:bg-[#112921] px-3.5 text-sm focus:outline-none"
+                className="min-h-[44px] rounded-xl bg-[#e8f6ff] dark:bg-[#112921] px-3 text-sm focus:outline-none"
               >
-                <option value="editor">مشرف ومحرر (النشر + رسائل المراسلين)</option>
-                <option value="admin">مدير ومسؤول كامل (جميع الصلاحيات)</option>
+                <option value="editor">محرر محتوى (Editor)</option>
+                <option value="supervisor">مشرف قسم (Supervisor)</option>
+                <option value="admin">مدير كامل (Admin)</option>
+              </select>
+              <select
+                value={newAccSection}
+                onChange={(e) => setNewAccSection(e.target.value as AdminSectionScope)}
+                disabled={newAccRole === 'admin'}
+                className="min-h-[44px] rounded-xl bg-[#e8f6ff] dark:bg-[#112921] px-3 text-sm focus:outline-none disabled:opacity-50"
+              >
+                <option value="all">جميع الأقسام المسموحة</option>
+                <option value="mother-oasis">واحة الداعية أمي</option>
+                <option value="deaf-mute">قسم الصم والبكم</option>
+                <option value="fatawa">الفتاوى</option>
+                <option value="library">المكتبات العلمية</option>
+                <option value="adhkar">الأذكار والأدعية</option>
+                <option value="poetry">الشعر والطرائف</option>
               </select>
               <button
                 type="button"
@@ -2744,6 +3291,557 @@ export function AdminStudioView({
             )}
           </div>
         </section>
+      )}
+
+      {/* Tab: Deaf & Mute Videos Manager (Eng. Younis Abdulkarim) */}
+      {tab === 'deaf-mute' && (
+        <section className="rounded-3xl bg-white dark:bg-[#0d211a] border border-slate-200/80 dark:border-white/10 p-5 sm:p-6 shadow-xs space-y-6">
+          <div className="space-y-1">
+            <h2 className="text-lg font-extrabold text-[#0e1d25] dark:text-white flex items-center gap-2">
+              <HandHeart className="w-5 h-5 text-[#006a46] dark:text-[#6cdba6]" />
+              <span>إدارة فيديوهات قناة الصم والبكم (بإشراف م. يونس عبدالكريم)</span>
+            </h2>
+            <p className="text-xs text-[#6e7a71] dark:text-slate-400">
+              أضف روابط فيديوهات يوتيوب الدعوية بلغة الإشارة والترجمة النصية لتظهر مباشرة في قسم الصم والبكم.
+            </p>
+          </div>
+
+          <div className="rounded-2xl bg-[#f4faff] dark:bg-[#112921] p-4 space-y-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <input
+                type="text"
+                value={dmTitle}
+                onChange={(e) => setDmTitle(e.target.value)}
+                placeholder="عنوان الفيديو الدعوي..."
+                className="min-h-[42px] rounded-xl bg-white dark:bg-[#081712] border border-slate-200 dark:border-white/10 px-3.5 text-sm"
+              />
+              <input
+                type="url"
+                dir="ltr"
+                value={dmYoutube}
+                onChange={(e) => setDmYoutube(e.target.value)}
+                placeholder="https://youtube.com/watch?v=... أو youtu.be/..."
+                className="min-h-[42px] rounded-xl bg-white dark:bg-[#081712] border border-slate-200 dark:border-white/10 px-3.5 text-sm"
+              />
+              <input
+                type="text"
+                value={dmCategory}
+                onChange={(e) => setDmCategory(e.target.value)}
+                placeholder="التصنيف (مثال: القرآن والإيمان)"
+                className="min-h-[42px] rounded-xl bg-white dark:bg-[#081712] border border-slate-200 dark:border-white/10 px-3.5 text-sm"
+              />
+              <select
+                value={dmStatus}
+                onChange={(e) => setDmStatus(e.target.value as 'published' | 'upcoming')}
+                className="min-h-[42px] rounded-xl bg-white dark:bg-[#081712] border border-slate-200 dark:border-white/10 px-3.5 text-sm font-bold"
+              >
+                <option value="published">منشور الآن (مع مشغّل يوتيوب)</option>
+                <option value="upcoming">قريباً (قيد التجهيز)</option>
+              </select>
+            </div>
+            <textarea
+              rows={2}
+              value={dmDesc}
+              onChange={(e) => setDmDesc(e.target.value)}
+              placeholder="وصف بصري واضح وميسّر للمقطع..."
+              className="w-full rounded-xl bg-white dark:bg-[#081712] border border-slate-200 dark:border-white/10 p-3 text-sm"
+            />
+            <textarea
+              rows={2}
+              value={dmBenefit}
+              onChange={(e) => setDmBenefit(e.target.value)}
+              placeholder="الفائدة المكتوبة أو الرسالة المرفقة بلغة واضحة (اختياري)..."
+              className="w-full rounded-xl bg-white dark:bg-[#081712] border border-slate-200 dark:border-white/10 p-3 text-sm"
+            />
+            <button
+              type="button"
+              disabled={dmSaving}
+              onClick={() => void handleSaveDeafMuteVideo()}
+              className="min-h-[44px] px-5 py-2 rounded-xl bg-[#006a46] hover:bg-[#005235] disabled:opacity-60 text-white text-xs font-extrabold flex items-center gap-1.5"
+            >
+              <Plus className="w-4 h-4" />
+              <span>{dmSaving ? 'جاري الحفظ...' : 'إضافة الفيديو لقسم الصم والبكم'}</span>
+            </button>
+          </div>
+
+          <div className="space-y-2.5">
+            {deafMuteVideos.map((v) => (
+              <div
+                key={v.id}
+                className="rounded-2xl border border-slate-200/80 dark:border-white/10 bg-[#fafcfb] dark:bg-[#081712] p-4 flex items-center justify-between gap-3"
+              >
+                <div className="min-w-0 space-y-1">
+                  <span className="text-[11px] font-bold text-[#006a46] dark:text-[#6cdba6]">
+                    {v.category} · {v.status === 'published' ? 'منشور' : 'قريباً'}
+                  </span>
+                  <h4 className="text-sm font-extrabold text-[#0e1d25] dark:text-white truncate">{v.title}</h4>
+                  <p className="text-xs text-[#6e7a71] dark:text-slate-400 truncate">{v.description}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void handleDeleteDeafMuteVideo(v.id)}
+                  className="min-w-[38px] min-h-[38px] rounded-xl bg-rose-50 dark:bg-rose-950/40 text-rose-600 flex items-center justify-center shrink-0"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* Tab: Custom Adhkar & Library Cloud Books Manager */}
+      {tab === 'adhkar-books' && (
+        <div className="space-y-6">
+          {/* Adhkar Manager */}
+          <section className="rounded-3xl bg-white dark:bg-[#0d211a] border border-slate-200/80 dark:border-white/10 p-5 sm:p-6 shadow-xs space-y-4">
+            <h2 className="text-lg font-extrabold text-[#0e1d25] dark:text-white">
+              إضافة أذكار وأدعية مخصصة (محفوظة سحابياً)
+            </h2>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <select
+                value={adhkarChapterId}
+                onChange={(e) => setAdhkarChapterId(e.target.value)}
+                className="min-h-[42px] rounded-xl bg-[#e8f6ff] dark:bg-[#112921] px-3 text-xs font-bold"
+              >
+                <option value="ch1_morning_evening">١. أذكار الصباح والمساء</option>
+                <option value="ch2_wudu_prayer">٢. أذكار الوضوء والصلاة والمسجد</option>
+                <option value="ch3_sleep_waking">٣. أذكار النوم والاستيقاظ</option>
+                <option value="ch4_home_travel">٤. المنزل والسفر وتقلبات الطبيعة</option>
+                <option value="ch5_food_social">٥. الطعام والآداب الاجتماعية</option>
+                <option value="ch6_distress_ruqyah">٦. الكرب والرقية الشرعية</option>
+                <option value="ch7_istighfar_tasbeeh">٧. جوامع الاستغفار والتسبيح</option>
+                <option value="ch8_birr_wafaa">٨. وقفة بر ووفاء · الدعاء للوالدة</option>
+              </select>
+              <input
+                type="text"
+                value={adhkarTitle}
+                onChange={(e) => setAdhkarTitle(e.target.value)}
+                placeholder="عنوان الذكر (اختياري)"
+                className="min-h-[42px] rounded-xl bg-[#e8f6ff] dark:bg-[#112921] px-3.5 text-sm"
+              />
+              <input
+                type="number"
+                min={1}
+                max={1000}
+                value={adhkarCount}
+                onChange={(e) => setAdhkarCount(Math.max(1, Number(e.target.value) || 1))}
+                placeholder="العدد"
+                className="min-h-[42px] rounded-xl bg-[#e8f6ff] dark:bg-[#112921] px-3.5 text-sm"
+              />
+            </div>
+            <textarea
+              rows={3}
+              value={adhkarText}
+              onChange={(e) => setAdhkarText(e.target.value)}
+              placeholder="نص الذكر أو الدعاء..."
+              className="w-full rounded-xl bg-[#e8f6ff] dark:bg-[#112921] p-3.5 text-sm"
+            />
+            <input
+              type="text"
+              value={adhkarFadl}
+              onChange={(e) => setAdhkarFadl(e.target.value)}
+              placeholder="فضل الذكر أو التخريج الصحيح (اختياري)..."
+              className="w-full min-h-[42px] rounded-xl bg-[#e8f6ff] dark:bg-[#112921] px-3.5 text-sm"
+            />
+            <button
+              type="button"
+              disabled={adhkarSaving}
+              onClick={() => void handleSaveCustomAdhkar()}
+              className="min-h-[44px] px-5 py-2 rounded-xl bg-[#006a46] hover:bg-[#005235] text-white text-xs font-extrabold"
+            >
+              {adhkarSaving ? 'جاري الحفظ...' : '+ إضافة الذكر إلى الأذكار والأدعية الجامعة'}
+            </button>
+
+            {customAdhkar.length > 0 && (
+              <div className="space-y-2 pt-2">
+                {customAdhkar.map((d) => (
+                  <div
+                    key={d.id}
+                    className="rounded-xl bg-[#f4faff] dark:bg-[#081712] p-3 flex items-center justify-between gap-2"
+                  >
+                    <p className="text-xs font-bold text-[#0e1d25] dark:text-white line-clamp-1">{d.text}</p>
+                    <button
+                      type="button"
+                      onClick={() => void handleDeleteCustomAdhkar(d.id)}
+                      className="text-rose-600 p-1.5"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
+          {/* Cloud Library Books Manager */}
+          <section className="rounded-3xl bg-white dark:bg-[#0d211a] border border-slate-200/80 dark:border-white/10 p-5 sm:p-6 shadow-xs space-y-4">
+            <h2 className="text-lg font-extrabold text-[#0e1d25] dark:text-white">
+              إضافة كتب ومراجع علمية سحابية للمكتبات
+            </h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <select
+                value={bookSection}
+                onChange={(e) => setBookSection(e.target.value as CustomBookItem['section'])}
+                className="min-h-[42px] rounded-xl bg-[#e8f6ff] dark:bg-[#112921] px-3 text-xs font-bold"
+              >
+                <option value="hajouri">مكتبة الشيخ يحيى بن علي الحجوري</option>
+                <option value="imams">مكتبة الأئمة الكبار</option>
+                <option value="students">مؤلفات مشايخ وطلاب الشيخ</option>
+              </select>
+              <input
+                type="text"
+                value={bookCategory}
+                onChange={(e) => setBookCategory(e.target.value)}
+                placeholder="التصنيف (مثال: العقيدة والمنهج)"
+                className="min-h-[42px] rounded-xl bg-[#e8f6ff] dark:bg-[#112921] px-3.5 text-sm"
+              />
+              <input
+                type="text"
+                value={bookTitle}
+                onChange={(e) => setBookTitle(e.target.value)}
+                placeholder="اسم الكتاب أو الرسالة العلمية..."
+                className="min-h-[42px] rounded-xl bg-[#e8f6ff] dark:bg-[#112921] px-3.5 text-sm"
+              />
+              <input
+                type="text"
+                value={bookAuthor}
+                onChange={(e) => setBookAuthor(e.target.value)}
+                placeholder="اسم المؤلف (من علماء أهل السنة المعتمدين)..."
+                className="min-h-[42px] rounded-xl bg-[#e8f6ff] dark:bg-[#112921] px-3.5 text-sm"
+              />
+            </div>
+            <input
+              type="text"
+              dir="ltr"
+              value={bookPdfUrl}
+              onChange={(e) => setBookPdfUrl(e.target.value)}
+              placeholder="coming_soon أو رابط PDF مباشر"
+              className="w-full min-h-[42px] rounded-xl bg-[#e8f6ff] dark:bg-[#112921] px-3.5 text-sm"
+            />
+            <textarea
+              rows={2}
+              value={bookSummary}
+              onChange={(e) => setBookSummary(e.target.value)}
+              placeholder="وصف مختصر لمحتوى الكتاب وفوائده..."
+              className="w-full rounded-xl bg-[#e8f6ff] dark:bg-[#112921] p-3 text-sm"
+            />
+            <button
+              type="button"
+              disabled={bookSaving}
+              onClick={() => void handleSaveCustomBook()}
+              className="min-h-[44px] px-5 py-2 rounded-xl bg-[#006a46] hover:bg-[#005235] text-white text-xs font-extrabold"
+            >
+              {bookSaving ? 'جاري الحفظ...' : '+ إضافة الكتاب إلى المكتبة السحابية'}
+            </button>
+
+            {customBooks.length > 0 && (
+              <div className="space-y-2 pt-2">
+                {customBooks.map((b) => (
+                  <div
+                    key={b.id}
+                    className="rounded-xl bg-[#f4faff] dark:bg-[#081712] p-3 flex items-center justify-between gap-2"
+                  >
+                    <div>
+                      <p className="text-xs font-extrabold text-[#0e1d25] dark:text-white">{b.title}</p>
+                      <span className="text-[11px] text-[#6e7a71] dark:text-slate-400">{b.author}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void handleDeleteCustomBook(b.id)}
+                      className="text-rose-600 p-1.5"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        </div>
+      )}
+
+      {/* Tab: Live Support Chat Inbox & Hidden Google Meet Controls */}
+      {tab === 'live-support' && (
+        <div className="space-y-6">
+          {/* Hidden Google Meet Configuration */}
+          <section className="rounded-3xl bg-white dark:bg-[#0d211a] border border-slate-200/80 dark:border-white/10 p-5 sm:p-6 shadow-xs space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-extrabold text-[#0e1d25] dark:text-white flex items-center gap-2">
+                  <Video className="w-5 h-5 text-[#006a46] dark:text-[#6cdba6]" />
+                  <span>إعدادات Google Meet المخفية (للصم والبكم والمقابلات)</span>
+                </h2>
+                <p className="text-xs text-[#6e7a71] dark:text-slate-400 mt-0.5">
+                  تبقى غرفة Google Meet مخفية تماماً عن عامة المشتركين ما لم يُختر إظهارها للجميع، أو تُرسل كدعوة خاصة داخل جلسة الصم والبكم أو المقابلات.
+                </p>
+                <p className="text-[11px] font-bold text-[#006a46] dark:text-[#6cdba6] mt-1">
+                  الحساب المعتمد لاستضافة Meet:{' '}
+                  <span dir="ltr">{meetConnectedEmail || DEFAULT_MEET_HOST_EMAIL}</span>
+                  {meetOAuthConnected &&
+                    meetConnectedEmail &&
+                    meetConnectedEmail.toLowerCase() !== DEFAULT_MEET_HOST_EMAIL && (
+                      <button
+                        type="button"
+                        onClick={() => void handleConnectGoogleMeet()}
+                        className="ms-2 underline text-amber-700 dark:text-amber-300"
+                      >
+                        تبديل إلى {DEFAULT_MEET_HOST_EMAIL}
+                      </button>
+                    )}
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                {!meetOAuthConnected ? (
+                  <button
+                    type="button"
+                    disabled={meetConnecting}
+                    onClick={() => void handleConnectGoogleMeet()}
+                    className="min-h-[42px] px-4 py-2 rounded-xl bg-white dark:bg-[#112921] border border-slate-300 dark:border-white/20 text-[#1f1f1f] dark:text-white text-xs font-bold flex items-center gap-2.5 shadow-xs hover:bg-slate-50 dark:hover:bg-[#17362b] transition-colors"
+                  >
+                    <svg className="w-4 h-4 shrink-0" viewBox="0 0 48 48" aria-hidden="true">
+                      <path
+                        fill="#EA4335"
+                        d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"
+                      />
+                      <path
+                        fill="#4285F4"
+                        d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"
+                      />
+                      <path
+                        fill="#FBBC05"
+                        d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"
+                      />
+                      <path
+                        fill="#34A853"
+                        d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"
+                      />
+                    </svg>
+                    <span>
+                      {meetConnecting
+                        ? 'جاري الربط...'
+                        : `Sign in with Google · ربط ${DEFAULT_MEET_HOST_EMAIL}`}
+                    </span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={creatingMeetRoom}
+                    onClick={() => void handleCreateMeetSpace('default')}
+                    className="min-h-[42px] px-4 py-2 rounded-xl bg-[#006389] hover:bg-[#005272] text-white text-xs font-extrabold flex items-center gap-1.5 transition-colors"
+                  >
+                    <Video className="w-4 h-4 shrink-0" />
+                    <span>{creatingMeetRoom ? 'جاري الإنشاء...' : 'إنشاء غرفة Google Meet تلقائياً'}</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  disabled={savingMeetCfg}
+                  onClick={() => void handleSaveMeetVisibilityConfig()}
+                  className="min-h-[42px] px-4 py-2 rounded-xl bg-[#006a46] text-white text-xs font-extrabold"
+                >
+                  {savingMeetCfg ? 'جاري الحفظ...' : 'حفظ إعدادات Meet'}
+                </button>
+              </div>
+            </div>
+
+            {confirmReplaceMeetRoom && (
+              <div className="rounded-2xl bg-amber-50 dark:bg-amber-950/35 border border-amber-500/40 p-3.5 flex flex-wrap items-center justify-between gap-2">
+                <p className="text-xs font-bold text-amber-900 dark:text-amber-200">
+                  يوجد رابط غرفة Google Meet محفوظ حالياً. هل تريد إنشاء غرفة جديدة واستبدال الرابط الافتراضي؟
+                </p>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void handleCreateMeetSpace('default', true)}
+                    className="min-h-[34px] px-3 rounded-lg bg-amber-700 text-white text-xs font-extrabold"
+                  >
+                    تأكيد إنشاء غرفة جديدة
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmReplaceMeetRoom(false)}
+                    className="min-h-[34px] px-3 rounded-lg bg-white dark:bg-[#0d211a] text-xs font-bold border border-slate-200 dark:border-white/15"
+                  >
+                    إلغاء
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <label className="space-y-1 block">
+                <span className="text-xs font-bold text-[#3e4a42] dark:text-slate-300">حالة الظهور للمشتركين</span>
+                <select
+                  value={editMeetConfig.visibility}
+                  onChange={(e) =>
+                    setEditMeetConfig((prev) => ({
+                      ...prev,
+                      visibility: e.target.value as MeetVisibilityMode,
+                    }))
+                  }
+                  className="w-full min-h-[42px] rounded-xl bg-[#e8f6ff] dark:bg-[#112921] px-3 text-xs font-bold"
+                >
+                  <option value="hidden_admin_only">مخفي عن المشتركين (للمشرفين والدعوات الخاصة فقط)</option>
+                  <option value="deaf_mute_invited">متاح لدعوات فئة الصم والبكم والمقابلات</option>
+                  <option value="all_subscribers">مدمج ومفتوح لجميع المشتركين</option>
+                </select>
+              </label>
+
+              <label className="space-y-1 block">
+                <span className="text-xs font-bold text-[#3e4a42] dark:text-slate-300">رابط غرفة Google Meet الافتراضي</span>
+                <input
+                  type="url"
+                  dir="ltr"
+                  value={editMeetConfig.activeRoomUrl}
+                  onChange={(e) =>
+                    setEditMeetConfig((prev) => ({...prev, activeRoomUrl: e.target.value}))
+                  }
+                  placeholder="https://meet.google.com/xxx-xxxx-xxx"
+                  className="w-full min-h-[42px] rounded-xl bg-[#e8f6ff] dark:bg-[#112921] px-3.5 text-sm"
+                />
+              </label>
+            </div>
+          </section>
+
+          {/* Live WebSocket Sessions */}
+          <section className="rounded-3xl bg-white dark:bg-[#0d211a] border border-slate-200/80 dark:border-white/10 p-5 sm:p-6 shadow-xs space-y-4">
+            <h2 className="text-base sm:text-lg font-extrabold text-[#0e1d25] dark:text-white flex items-center gap-2">
+              <Radio className="w-5 h-5 text-[#006a46] dark:text-[#6cdba6]" />
+              <span>جلسات الدردشة الحية المباشرة ({liveSessions.length.toLocaleString('ar-EG')})</span>
+            </h2>
+
+            {liveSessions.length === 0 ? (
+              <p className="text-xs text-[#6e7a71] dark:text-slate-400">
+                لا توجد جلسات دردشة نشطة الآن. ستظهر هنا فوراً عند مراسلة أي زائر أو مستفيد من قسم الصم والبكم أو متقدم للمقابلة.
+              </p>
+            ) : (
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+                <div className="lg:col-span-4 space-y-2 max-h-[380px] overflow-y-auto">
+                  {liveSessions.map((sess) => {
+                    const active = (selectedSessionId || liveSessions[0]?.id) === sess.id;
+                    return (
+                      <button
+                        key={sess.id}
+                        type="button"
+                        onClick={() => setSelectedSessionId(sess.id)}
+                        className={`w-full text-start rounded-2xl p-3 border transition-colors ${
+                          active
+                            ? 'bg-[#006a46] text-white border-[#006a46]'
+                            : 'bg-[#f4faff] dark:bg-[#112921] border-slate-200/70 dark:border-white/10'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2 text-xs font-extrabold">
+                          <span className="truncate">{sess.visitorName}</span>
+                          <span className="text-[10px] px-2 py-0.5 rounded bg-black/15">
+                            {sess.topic === 'deaf_mute'
+                              ? 'الصم والبكم'
+                              : sess.topic === 'interview'
+                                ? 'مقابلة'
+                                : 'تواصل مباشر'}
+                          </span>
+                        </div>
+                        <p className="text-[11px] opacity-80 truncate mt-1">
+                          {sess.messages[sess.messages.length - 1]?.text || 'بانتظار الرسالة...'}
+                        </p>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="lg:col-span-8 rounded-2xl border border-slate-200/80 dark:border-white/10 bg-[#f8fbf9] dark:bg-[#081712] p-4 space-y-3">
+                  {(() => {
+                    const currentSess =
+                      liveSessions.find((s) => s.id === (selectedSessionId || liveSessions[0]?.id)) ||
+                      liveSessions[0];
+                    if (!currentSess) return null;
+                    return (
+                      <>
+                        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200/70 dark:border-white/10 pb-2.5">
+                          <span className="text-sm font-extrabold text-[#0e1d25] dark:text-white">
+                            {currentSess.visitorName} ({currentSess.id})
+                          </span>
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <input
+                              type="url"
+                              dir="ltr"
+                              value={customMeetInviteUrl}
+                              onChange={(e) => setCustomMeetInviteUrl(e.target.value)}
+                              placeholder={editMeetConfig.activeRoomUrl || 'https://meet.google.com/...'}
+                              className="min-h-[34px] rounded-lg bg-white dark:bg-[#0d211a] border border-slate-200 dark:border-white/10 px-2.5 text-xs w-44"
+                            />
+                            {meetOAuthConnected && (
+                              <button
+                                type="button"
+                                disabled={creatingMeetRoom}
+                                onClick={() => void handleCreateMeetSpace('session', true)}
+                                className="min-h-[34px] px-2.5 rounded-lg bg-[#006389] text-white text-[11px] font-bold flex items-center gap-1 shrink-0"
+                              >
+                                <Plus className="w-3.5 h-3.5" />
+                                <span>توليد غرفة جديدة</span>
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => sendPrivateMeetInviteToSession(currentSess.id)}
+                              className="min-h-[34px] px-3 rounded-lg bg-[#7c5800] text-white text-[11px] font-bold flex items-center gap-1 shrink-0"
+                            >
+                              <Video className="w-3.5 h-3.5" />
+                              <span>إرسال دعوة Meet خاصة</span>
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="h-[220px] overflow-y-auto space-y-2 p-2">
+                          {currentSess.messages.map((m) => (
+                            <div
+                              key={m.id}
+                              className={`flex ${m.senderRole === 'admin' ? 'justify-end' : 'justify-start'}`}
+                            >
+                              <div
+                                className={`max-w-[85%] rounded-xl px-3 py-2 text-xs ${
+                                  m.senderRole === 'admin'
+                                    ? 'bg-[#006a46] text-white'
+                                    : 'bg-white dark:bg-[#0d211a] border border-slate-200/80 dark:border-white/10'
+                                }`}
+                              >
+                                <span className="block text-[10px] font-bold opacity-80">{m.senderName}</span>
+                                <p>{m.text}</p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            value={liveReplyText}
+                            onChange={(e) => setLiveReplyText(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                sendAdminLiveReply(currentSess.id);
+                              }
+                            }}
+                            placeholder="اكتب رد المشرف المباشر..."
+                            className="flex-1 min-h-[40px] rounded-xl bg-white dark:bg-[#0d211a] border border-slate-200 dark:border-white/10 px-3 text-sm"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => sendAdminLiveReply(currentSess.id)}
+                            className="min-h-[40px] px-4 rounded-xl bg-[#006a46] text-white text-xs font-bold"
+                          >
+                            إرسال الرد
+                          </button>
+                        </div>
+                      </>
+                    );
+                  })()}
+                </div>
+              </div>
+            )}
+          </section>
+        </div>
       )}
         </div>
       </div>

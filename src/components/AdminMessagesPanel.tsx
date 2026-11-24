@@ -5,9 +5,11 @@ import {
   HandHeart,
   HelpCircle,
   Inbox,
+  KeyRound,
   Lightbulb,
   Lock,
   MessageSquare,
+  Radio,
   RefreshCw,
   Search,
   Sparkles,
@@ -15,7 +17,13 @@ import {
   UserPlus,
 } from 'lucide-react';
 import {useCallback, useEffect, useMemo, useState} from 'react';
-import type {MessageInboxStatus, SuggestionItem, VolunteerItem} from '../types';
+import type {
+  AdminRole,
+  AdminSectionScope,
+  MessageInboxStatus,
+  SuggestionItem,
+  VolunteerItem,
+} from '../types';
 
 type MessageCategoryFilter = 'all' | 'proposal' | 'team' | 'contribution' | 'help';
 type MessageStatusFilter = 'all' | MessageInboxStatus;
@@ -66,12 +74,14 @@ export function AdminMessagesPanel({
   suggestions,
   volunteers,
   onUpdateMessages,
+  onOpenLiveSession,
   onNotify,
 }: {
   authToken: string;
   suggestions: SuggestionItem[];
   volunteers: VolunteerItem[];
   onUpdateMessages: (suggestions: SuggestionItem[], volunteers: VolunteerItem[]) => void;
+  onOpenLiveSession?: (sessionId: string) => void;
   onNotify: (msg: string) => void;
 }) {
   const [categoryFilter, setCategoryFilter] = useState<MessageCategoryFilter>('all');
@@ -80,6 +90,14 @@ export function AdminMessagesPanel({
   const [refreshing, setRefreshing] = useState(false);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [noteDrafts, setNoteDrafts] = useState<Record<string, string>>({});
+  const [interviewTargetId, setInterviewTargetId] = useState<string | null>(null);
+  const [issueRole, setIssueRole] = useState<AdminRole>('editor');
+  const [issueSection, setIssueSection] = useState<AdminSectionScope>('all');
+  const [issueUsername, setIssueUsername] = useState('');
+  const [issuePassword, setIssuePassword] = useState('');
+  const [issuedCredentials, setIssuedCredentials] = useState<
+    Record<string, {username: string; tempPassword: string; role: AdminRole; assignedSection: AdminSectionScope}>
+  >({});
 
   const refreshMessages = useCallback(
     async (silent = false) => {
@@ -273,9 +291,65 @@ export function AdminMessagesPanel({
   const copyContact = async (contactText: string) => {
     try {
       await navigator.clipboard.writeText(contactText);
-      onNotify(`تم نسخ وسيلة التواصل: ${contactText}`);
+      onNotify(`تم نسخ: ${contactText}`);
     } catch {
       onNotify(contactText);
+    }
+  };
+
+  const handleAcceptAndIssueTeamAccount = async (entry: UnifiedInboxEntry) => {
+    const key = `${entry.kind}:${entry.id}`;
+    setBusyKey(key);
+    try {
+      const res = await fetch('/api/admin/interviews/accept-issue', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({
+          entryKind: entry.kind,
+          entryId: entry.id,
+          senderName: entry.senderName,
+          role: issueRole,
+          assignedSection: issueSection,
+          username: issueUsername.trim() || undefined,
+          password: issuePassword.trim() || undefined,
+        }),
+      });
+      const data = (await res.json()) as {
+        username?: string;
+        tempPassword?: string;
+        role?: AdminRole;
+        assignedSection?: AdminSectionScope;
+        suggestions?: SuggestionItem[];
+        volunteers?: VolunteerItem[];
+        error?: string;
+      };
+      if (!res.ok || !data.username || !data.tempPassword) {
+        onNotify(data.error || 'تعذر إصدار حساب عضو الفريق حالياً');
+        return;
+      }
+      setIssuedCredentials((prev) => ({
+        ...prev,
+        [key]: {
+          username: data.username!,
+          tempPassword: data.tempPassword!,
+          role: data.role || issueRole,
+          assignedSection: data.assignedSection || issueSection,
+        },
+      }));
+      if (data.suggestions && data.volunteers) {
+        onUpdateMessages(data.suggestions, data.volunteers);
+      }
+      setInterviewTargetId(null);
+      setIssueUsername('');
+      setIssuePassword('');
+      onNotify(`تم قبول الطلب وإصدار حساب (${data.username}) بنجاح`);
+    } catch {
+      onNotify('تعذر الاتصال بالخادم لإصدار الحساب');
+    } finally {
+      setBusyKey(null);
     }
   };
 
@@ -530,6 +604,120 @@ export function AdminMessagesPanel({
                     حفظ الرد
                   </button>
                 </div>
+
+                {/* Online Interview & Scoped Account Issuance for Team / Development Applicants */}
+                {entry.category === 'team' && (
+                  <div className="rounded-xl bg-[#fffbf2] dark:bg-[#13221c] border border-[#f2be5e]/45 p-3 space-y-2.5">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 text-xs font-extrabold text-[#7c5800] dark:text-[#ffdea8]">
+                        <KeyRound className="w-4 h-4 shrink-0" />
+                        <span>المقابلة الشخصية أونلاين وإصدار حساب محرر / مشرف</span>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {onOpenLiveSession && (
+                          <button
+                            type="button"
+                            onClick={() => onOpenLiveSession(`interview_${entry.id}`)}
+                            className="min-h-[34px] px-3 py-1 rounded-lg bg-[#006389] text-white text-[11px] font-bold flex items-center gap-1"
+                          >
+                            <Radio className="w-3.5 h-3.5" />
+                            <span>بدء مقابلة أونلاين</span>
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const k = `${entry.kind}:${entry.id}`;
+                            setInterviewTargetId(interviewTargetId === k ? null : k);
+                          }}
+                          className="min-h-[34px] px-3 py-1 rounded-lg bg-[#006a46] text-white text-[11px] font-bold flex items-center gap-1"
+                        >
+                          <UserPlus className="w-3.5 h-3.5" />
+                          <span>قبول وإصدار اسم مستخدم وكلمة مرور</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {interviewTargetId === `${entry.kind}:${entry.id}` && (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 pt-2 border-t border-amber-500/20">
+                        <select
+                          value={issueRole}
+                          onChange={(e) => setIssueRole(e.target.value as AdminRole)}
+                          className="min-h-[38px] rounded-lg bg-white dark:bg-[#081712] border border-slate-200 dark:border-white/10 px-2.5 text-xs font-bold"
+                        >
+                          <option value="editor">محرر محتوى (Editor)</option>
+                          <option value="supervisor">مشرف قسم (Supervisor)</option>
+                          <option value="admin">مسؤول كامل (Admin)</option>
+                        </select>
+                        <select
+                          value={issueSection}
+                          onChange={(e) => setIssueSection(e.target.value as AdminSectionScope)}
+                          className="min-h-[38px] rounded-lg bg-white dark:bg-[#081712] border border-slate-200 dark:border-white/10 px-2.5 text-xs font-bold"
+                        >
+                          <option value="all">جميع الأقسام المسموحة</option>
+                          <option value="mother-oasis">واحة الداعية أمي</option>
+                          <option value="deaf-mute">قسم الصم والبكم</option>
+                          <option value="fatawa">الفتاوى</option>
+                          <option value="library">المكتبات العلمية</option>
+                          <option value="adhkar">الأذكار والأدعية</option>
+                          <option value="poetry">واحة الشعر والطرائف</option>
+                        </select>
+                        <input
+                          type="text"
+                          value={issueUsername}
+                          onChange={(e) => setIssueUsername(e.target.value)}
+                          placeholder="اسم مستخدم (أو يولَّد تلقائياً)"
+                          className="min-h-[38px] rounded-lg bg-white dark:bg-[#081712] border border-slate-200 dark:border-white/10 px-2.5 text-xs"
+                        />
+                        <div className="flex gap-1.5">
+                          <input
+                            type="text"
+                            value={issuePassword}
+                            onChange={(e) => setIssuePassword(e.target.value)}
+                            placeholder="كلمة مرور مؤقتة (اختياري)"
+                            className="flex-1 min-h-[38px] rounded-lg bg-white dark:bg-[#081712] border border-slate-200 dark:border-white/10 px-2.5 text-xs"
+                          />
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => void handleAcceptAndIssueTeamAccount(entry)}
+                            className="min-h-[38px] px-3 rounded-lg bg-[#7c5800] text-white text-xs font-bold shrink-0"
+                          >
+                            اعتماد
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {issuedCredentials[`${entry.kind}:${entry.id}`] && (() => {
+                      const cred = issuedCredentials[`${entry.kind}:${entry.id}`];
+                      const shareCredText = `تم قبولكم في فريق مواعظ وعبر:\nاسم المستخدم: ${cred.username}\nكلمة المرور المؤقتة: ${cred.tempPassword}\nالدور: ${cred.role} · القسم: ${cred.assignedSection}`;
+                      return (
+                        <div className="rounded-lg bg-white dark:bg-[#081712] border border-emerald-600/30 p-2.5 text-xs flex flex-wrap items-center justify-between gap-2">
+                          <div className="space-y-0.5">
+                            <span className="font-extrabold text-[#006a46] dark:text-[#6cdba6] block">
+                              بيانات الدخول الصادرة للمقبول:
+                            </span>
+                            <span dir="ltr" className="font-mono font-bold text-[#0e1d25] dark:text-white select-all">
+                              {cred.username} / {cred.tempPassword}
+                            </span>
+                            <span className="text-[11px] text-[#6e7a71] dark:text-slate-400 ms-2">
+                              ({cred.role} · {cred.assignedSection})
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => void copyContact(shareCredText)}
+                            className="min-h-[32px] px-2.5 rounded-lg bg-[#006a46] text-white text-[11px] font-bold flex items-center gap-1"
+                          >
+                            <Copy className="w-3 h-3" />
+                            <span>نسخ البيانات</span>
+                          </button>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
 
                 <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-100 dark:border-white/10">
                   {entry.contact ? (

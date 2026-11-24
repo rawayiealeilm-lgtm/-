@@ -24,7 +24,8 @@ import {
   HISN_ITEMS,
   MOTHER_PRAYERS,
 } from '../data/seed';
-import type {Post, SiteConfig} from '../types';
+import type {CustomAdhkarItem, Post, SiteConfig} from '../types';
+import {ComingSoonState} from './ComingSoonState';
 type AdhkarChapterId = (typeof ADHKAR_8_CHAPTERS)[number]['id'];
 import {
   ADHKAR_STATS_UPDATED_EVENT,
@@ -149,6 +150,7 @@ function mapLegacyTo8Chapters(): NormalizedDhikrCard[] {
 export function AdhkarView({
   siteConfig,
   initialSection = 'adhkar',
+  customAdhkar = [],
   motherPrayerText,
   motherPrayersCount = 0,
   hasSaidAmen = false,
@@ -161,6 +163,7 @@ export function AdhkarView({
 }: {
   siteConfig?: SiteConfig;
   initialSection?: 'adhkar' | 'hisn';
+  customAdhkar?: CustomAdhkarItem[];
   motherPrayerText?: string;
   motherPrayersCount?: number;
   hasSaidAmen?: boolean;
@@ -184,7 +187,24 @@ export function AdhkarView({
   const [statsVersion, setStatsVersion] = useState(0);
   const [motherPrayerIdx, setMotherPrayerIdx] = useState(0);
 
-  const allItems = useMemo(() => mapLegacyTo8Chapters(), []);
+  const allItems = useMemo(() => {
+    const base = mapLegacyTo8Chapters();
+    const extra: NormalizedDhikrCard[] = (Array.isArray(customAdhkar) ? customAdhkar : []).map((c) => {
+      const validCh = ADHKAR_8_CHAPTERS.some((ch) => ch.id === c.chapterId)
+        ? (c.chapterId as AdhkarChapterId)
+        : 'ch1_morning_evening';
+      return {
+        id: c.id,
+        chapterId: validCh,
+        title: c.title,
+        text: c.text,
+        fadl: c.fadl,
+        targetCount: Math.max(1, c.targetCount || 1),
+        source: c.source || 'إضافات المشرفين السحابية',
+      };
+    });
+    return [...extra, ...base];
+  }, [customAdhkar]);
 
   useEffect(() => {
     if (initialSection === 'hisn') {
@@ -739,18 +759,16 @@ export function AdhkarView({
 
       {/* Dhikr Cards Grid */}
       {visibleItems.length === 0 ? (
-        <div className="rounded-2xl bg-white dark:bg-[#0d211a] border border-slate-200/80 dark:border-white/10 p-10 text-center space-y-3">
-          <p className="text-sm font-bold text-[#0e1d25] dark:text-white">
-            {tr('لا توجد أذكار أو أدعية مطابقة لعبارة البحث الحالية', 'No Adhkar match your search')}
-          </p>
-          <button
-            type="button"
-            onClick={() => setQuery('')}
-            className="min-h-[40px] px-4 py-2 rounded-xl bg-[#006a46] text-white text-xs font-bold"
-          >
-            {tr('عرض الأبواب الثمانية كاملة', 'Show All 8 Chapters')}
-          </button>
-        </div>
+        <ComingSoonState
+          badgeText={trimmedQuery ? tr('بحث الأذكار', 'Adhkar Search') : tr('قريباً', 'Coming Soon')}
+          title={
+            trimmedQuery
+              ? tr('لا توجد أذكار أو أدعية مطابقة لعبارة البحث الحالية', 'No Adhkar match your search')
+              : tr('لا توجد مواد إضافية في هذا الباب حالياً — قريباً بإذن الله', 'Coming Soon InshaAllah')
+          }
+          actionLabel={trimmedQuery ? tr('عرض الأبواب الثمانية كاملة', 'Show All 8 Chapters') : undefined}
+          onAction={trimmedQuery ? () => setQuery('') : undefined}
+        />
       ) : (
         <div className="grid grid-cols-1 gap-4">
           {visibleItems.map((item, idx) => {

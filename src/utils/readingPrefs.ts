@@ -8,15 +8,21 @@ export interface ReadingPrefs {
   fontSize: ReadingFontSize;
   fontFamily: ReadingFontFamily;
   readingTheme: ReadingThemeMode;
+  customFontSizePx?: number;
 }
 
 const READING_PREFS_KEY = 'mawaedh_reading_prefs_v1';
 const READING_PREFS_EVENT = 'mawaedh:reading-prefs-change';
 
+export const MIN_FONT_SIZE_PX = 13;
+export const MAX_FONT_SIZE_PX = 28;
+export const DEFAULT_FONT_SIZE_PX = 18;
+
 export const DEFAULT_READING_PREFS: ReadingPrefs = {
   fontSize: 'md',
   fontFamily: 'naskh',
   readingTheme: 'follow',
+  customFontSizePx: DEFAULT_FONT_SIZE_PX,
 };
 
 export const FONT_FAMILY_OPTIONS: Array<{
@@ -125,6 +131,19 @@ export const FONT_SIZE_STEPS: Array<{
   },
 ];
 
+export function clampFontSizePx(px: number): number {
+  if (!Number.isFinite(px)) return DEFAULT_FONT_SIZE_PX;
+  return Math.min(MAX_FONT_SIZE_PX, Math.max(MIN_FONT_SIZE_PX, Math.round(px)));
+}
+
+export function tierFromPx(px: number): ReadingFontSize {
+  if (px <= 16) return 'sm';
+  if (px <= 19) return 'md';
+  if (px <= 21) return 'lg';
+  if (px <= 24) return 'xl';
+  return 'xxl';
+}
+
 export function resolveFontFamilyCss(family: ReadingFontFamily): string {
   return FONT_FAMILY_OPTIONS.find((f) => f.id === family)?.cssFamily || FONT_FAMILY_OPTIONS[0].cssFamily;
 }
@@ -133,13 +152,23 @@ export function resolveFontSizeSpec(size: ReadingFontSize) {
   return FONT_SIZE_STEPS.find((s) => s.id === size) || FONT_SIZE_STEPS[1];
 }
 
+export function resolveActiveFontSizePx(prefs: ReadingPrefs): number {
+  if (typeof prefs.customFontSizePx === 'number' && Number.isFinite(prefs.customFontSizePx)) {
+    return clampFontSizePx(prefs.customFontSizePx);
+  }
+  return resolveFontSizeSpec(prefs.fontSize).pxValue;
+}
+
 export function syncRootReadingCssVars(prefs: ReadingPrefs): void {
   if (typeof document === 'undefined') return;
+  const px = resolveActiveFontSizePx(prefs);
   const spec = resolveFontSizeSpec(prefs.fontSize);
   const root = document.documentElement;
-  root.style.setProperty('--reading-font-size', `${spec.pxValue}px`);
+  root.style.setProperty('--reading-font-size', `${px}px`);
   root.style.setProperty('--reading-line-height', String(spec.lineHeightValue));
   root.style.setProperty('--reading-font-family', resolveFontFamilyCss(prefs.fontFamily));
+  const scaledRootPx = Math.min(22, Math.max(12.5, Math.round(((px / DEFAULT_FONT_SIZE_PX) * 16) * 10) / 10));
+  root.style.fontSize = `${scaledRootPx}px`;
 }
 
 export function loadReadingPrefs(): ReadingPrefs {
@@ -161,7 +190,11 @@ export function loadReadingPrefs(): ReadingPrefs {
       parsed.readingTheme === 'light' || parsed.readingTheme === 'dark' || parsed.readingTheme === 'follow'
         ? parsed.readingTheme
         : DEFAULT_READING_PREFS.readingTheme;
-    const resolved = {fontSize: validSize, fontFamily: validFamily, readingTheme: validTheme};
+    const customFontSizePx =
+      typeof parsed.customFontSizePx === 'number'
+        ? clampFontSizePx(parsed.customFontSizePx)
+        : resolveFontSizeSpec(validSize).pxValue;
+    const resolved = {fontSize: validSize, fontFamily: validFamily, readingTheme: validTheme, customFontSizePx};
     syncRootReadingCssVars(resolved);
     return resolved;
   } catch {
@@ -204,19 +237,23 @@ export function useReadingPrefs() {
     });
   };
 
+  const setCustomFontSizePx = (px: number) => {
+    const clamped = clampFontSizePx(px);
+    updatePrefs({customFontSizePx: clamped, fontSize: tierFromPx(clamped)});
+    return clamped;
+  };
+
   const stepFontSize = (direction: 'up' | 'down' | 'reset') => {
-    const order: ReadingFontSize[] = ['sm', 'md', 'lg', 'xl', 'xxl'];
     if (direction === 'reset') {
-      updatePrefs({fontSize: 'md'});
+      updatePrefs({fontSize: 'md', customFontSizePx: DEFAULT_FONT_SIZE_PX});
       return 'md' as ReadingFontSize;
     }
-    const idx = order.indexOf(prefs.fontSize);
-    const nextIdx =
-      direction === 'up' ? Math.min(order.length - 1, idx + 1) : Math.max(0, idx - 1);
-    const nextSize = order[nextIdx];
-    updatePrefs({fontSize: nextSize});
+    const currentPx = resolveActiveFontSizePx(prefs);
+    const nextPx = clampFontSizePx(direction === 'up' ? currentPx + 2 : currentPx - 2);
+    const nextSize = tierFromPx(nextPx);
+    updatePrefs({fontSize: nextSize, customFontSizePx: nextPx});
     return nextSize;
   };
 
-  return {prefs, updatePrefs, stepFontSize};
+  return {prefs, activeFontSizePx: resolveActiveFontSizePx(prefs), updatePrefs, setCustomFontSizePx, stepFontSize};
 }

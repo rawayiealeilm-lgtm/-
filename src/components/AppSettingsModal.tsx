@@ -13,6 +13,7 @@ import {
   Settings,
   Sparkles,
   Sun,
+  Type,
   X,
 } from 'lucide-react';
 import {useEffect, useMemo, useState} from 'react';
@@ -42,6 +43,12 @@ import {
   isNotificationSupported,
   requestNotificationPermission,
 } from '../utils/notifications';
+import {
+  DEFAULT_FONT_SIZE_PX,
+  MAX_FONT_SIZE_PX,
+  MIN_FONT_SIZE_PX,
+  useReadingPrefs,
+} from '../utils/readingPrefs';
 
 export type AppSettingsSection = 'settings' | 'weekly-activity';
 
@@ -121,6 +128,7 @@ export function AppSettingsModal({
   onNotify: (msg: string) => void;
 }) {
   const {isEn, tr, formatNumber} = useI18n();
+  const {activeFontSizePx, setCustomFontSizePx, stepFontSize} = useReadingPrefs();
   const [section, setSection] = useState<AppSettingsSection>(initialSection);
   const [permission, setPermission] = useState(() => getNotificationPermission());
   const [testing, setTesting] = useState(false);
@@ -737,6 +745,70 @@ export function AppSettingsModal({
                 </span>
                 <span className="text-[#006a46] dark:text-[#6cdba6]">{isEn ? 'العربية' : 'English'}</span>
               </button>
+            </section>
+
+            {/* Manual App Font Size Control */}
+            <section className="rounded-2xl bg-[#eefaf3] dark:bg-[#0f241c] border border-[#006a46]/25 p-4 space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <Type className="w-4 h-4 text-[#006a46] dark:text-[#6cdba6]" />
+                  <h3 className="text-xs sm:text-sm font-bold text-[#0e1d25] dark:text-white">
+                    {tr('التحكم اليدوي بحجم خط التطبيق', 'Manual App Font Size')}
+                  </h3>
+                </div>
+                <span className="px-2.5 py-0.5 rounded-lg bg-white dark:bg-[#0a1914] border border-[#006a46]/20 text-xs font-extrabold text-[#006a46] dark:text-[#6cdba6] tabular-nums">
+                  {formatNumber(activeFontSizePx)} px
+                </span>
+              </div>
+
+              <div className="flex items-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setCustomFontSizePx(activeFontSizePx - 1)}
+                  aria-label={tr('تصغير الخط', 'Decrease font size')}
+                  className="min-w-[40px] min-h-[40px] rounded-xl bg-white dark:bg-[#0a1914] border border-slate-200 dark:border-white/15 font-extrabold text-sm text-[#006a46] dark:text-[#6cdba6] hover:bg-emerald-50"
+                >
+                  A-
+                </button>
+                <input
+                  type="range"
+                  min={MIN_FONT_SIZE_PX}
+                  max={MAX_FONT_SIZE_PX}
+                  step={1}
+                  value={activeFontSizePx}
+                  onChange={(e) => setCustomFontSizePx(Number(e.target.value))}
+                  aria-label={tr('تعديل حجم الخط يدوياً', 'Adjust font size manually')}
+                  className="flex-1 accent-[#006a46] cursor-pointer h-2"
+                />
+                <button
+                  type="button"
+                  onClick={() => setCustomFontSizePx(activeFontSizePx + 1)}
+                  aria-label={tr('تكبير الخط', 'Increase font size')}
+                  className="min-w-[40px] min-h-[40px] rounded-xl bg-white dark:bg-[#0a1914] border border-slate-200 dark:border-white/15 font-extrabold text-sm text-[#006a46] dark:text-[#6cdba6] hover:bg-emerald-50"
+                >
+                  A+
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    stepFontSize('reset');
+                    onNotify(tr(`تمت استعادة حجم الخط الافتراضي (${DEFAULT_FONT_SIZE_PX}px)`, 'Default font size restored'));
+                  }}
+                  className="min-h-[40px] px-3 rounded-xl bg-white dark:bg-[#0a1914] border border-slate-200 dark:border-white/15 text-xs font-bold text-[#3e4a42] dark:text-slate-200"
+                >
+                  {tr('افتراضي', 'Reset')}
+                </button>
+              </div>
+
+              <p
+                style={{fontSize: `${activeFontSizePx}px`, lineHeight: 1.7}}
+                className="rounded-xl bg-white/85 dark:bg-[#0a1914] px-3.5 py-2.5 text-[#0e1d25] dark:text-slate-100 border border-slate-200/70 dark:border-white/10"
+              >
+                {tr(
+                  '﴿أَلَا بِذِكْرِ اللَّهِ تَطْمَئِنُّ الْقُلُوبُ﴾ — معاينة مباشرة لحجم الخط الحالي',
+                  'Sample preview of your chosen reading and interface font size.',
+                )}
+              </p>
             </section>
           </>
         )}

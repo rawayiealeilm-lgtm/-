@@ -1,0 +1,226 @@
+{
+  "entities": {
+    "AdminRecord": {
+      "title": "AdminRecord",
+      "description": "Trusted administrator account allowed to manage public Islamic content.",
+      "type": "object",
+      "properties": {
+        "email": {
+          "type": "string",
+          "format": "email",
+          "maxLength": 160
+        },
+        "role": {
+          "type": "string",
+          "enum": ["admin", "editor"]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["email", "role", "createdAt"]
+    },
+    "SitePost": {
+      "title": "SitePost",
+      "description": "Published sermon, Sada Al-Khair reflection, quote, or video item.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 2, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 260 },
+        "excerpt": { "type": "string", "minLength": 1, "maxLength": 1200 },
+        "body": { "type": "string", "minLength": 1, "maxLength": 30000 },
+        "author": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "sourceLabel": { "type": "string", "maxLength": 160 },
+        "category": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "mediaType": { "type": "string", "enum": ["quote", "sada", "video", "audio"] },
+        "cardTheme": { "type": "string", "enum": ["emerald", "azure", "gold", "midnight"] },
+        "youtubeUrl": { "type": "string", "maxLength": 400 },
+        "publishedAtLabel": { "type": "string", "maxLength": 80 },
+        "likes": { "type": "number" },
+        "commentsCount": { "type": "number" },
+        "hidden": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "title", "excerpt", "body", "author", "category", "mediaType", "cardTheme", "createdAt"]
+    },
+    "SiteFatwa": {
+      "title": "SiteFatwa",
+      "description": "Verified scholarly fatwa record.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 2, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "scholarId": { "type": "string", "enum": ["hajouri", "wadaei", "binbaz", "uthaymeen", "albani"] },
+        "scholarName": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "category": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "question": { "type": "string", "minLength": 3, "maxLength": 3000 },
+        "answer": { "type": "string", "minLength": 3, "maxLength": 25000 },
+        "source": { "type": "string", "minLength": 1, "maxLength": 240 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "scholarId", "scholarName", "category", "question", "answer", "source", "createdAt"]
+    },
+    "MotherOasisRecord": {
+      "title": "MotherOasisRecord",
+      "description": "Text-only book, transcribed lecture, or life story for Mother Dawah Oasis.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 2, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "chapter": { "type": "string", "enum": ["books", "lectures", "stories"] },
+        "title": { "type": "string", "minLength": 2, "maxLength": 260 },
+        "body": { "type": "string", "minLength": 3, "maxLength": 40000 },
+        "signature": { "type": "string", "minLength": 2, "maxLength": 220 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "chapter", "title", "body", "signature", "createdAt"]
+    },
+    "PoetryRecord": {
+      "title": "PoetryRecord",
+      "description": "Verified Islamic poetry or classical Arabic anecdote.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 2, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "kind": { "type": "string", "enum": ["islamic_poetry", "anecdote"] },
+        "title": { "type": "string", "minLength": 2, "maxLength": 260 },
+        "author": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "summary": { "type": "string", "maxLength": 600 },
+        "body": { "type": "string", "minLength": 3, "maxLength": 20000 },
+        "sourceUrl": { "type": "string", "maxLength": 400 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "kind", "title", "author", "body", "createdAt"]
+    },
+    "DeafMuteVideoRecord": {
+      "title": "DeafMuteVideoRecord",
+      "description": "YouTube lesson, visual sign-language reminder, or scheduled upcoming video for the Deaf & Mute section.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 2, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "title": { "type": "string", "minLength": 2, "maxLength": 240 },
+        "description": { "type": "string", "minLength": 2, "maxLength": 3000 },
+        "benefitText": { "type": "string", "maxLength": 4000 },
+        "youtubeUrl": { "type": "string", "maxLength": 500 },
+        "status": { "type": "string", "enum": ["published", "upcoming"] },
+        "category": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "managerName": { "type": "string", "minLength": 2, "maxLength": 140 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "title", "description", "status", "category", "managerName", "createdAt"]
+    },
+    "CustomAdhkarRecord": {
+      "title": "CustomAdhkarRecord",
+      "description": "Admin-added authentic dhikr or supplication assigned to one of the 8 ordered chapters.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 2, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "chapterId": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "title": { "type": "string", "maxLength": 200 },
+        "text": { "type": "string", "minLength": 3, "maxLength": 6000 },
+        "fadl": { "type": "string", "maxLength": 2000 },
+        "targetCount": { "type": "number" },
+        "source": { "type": "string", "minLength": 1, "maxLength": 240 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "chapterId", "text", "targetCount", "source", "createdAt"]
+    },
+    "CustomBookRecord": {
+      "title": "CustomBookRecord",
+      "description": "Admin-added scholarly PDF/external book entry in the Scientific Libraries.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 2, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "section": { "type": "string", "enum": ["hajouri", "imams", "students"] },
+        "title": { "type": "string", "minLength": 2, "maxLength": 260 },
+        "author": { "type": "string", "minLength": 2, "maxLength": 180 },
+        "category": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "summary": { "type": "string", "maxLength": 2500 },
+        "pdfUrl": { "type": "string", "minLength": 4, "maxLength": 600 },
+        "pages": { "type": "number" },
+        "sizeLabel": { "type": "string", "maxLength": 60 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "section", "title", "author", "category", "pdfUrl", "createdAt"]
+    },
+    "VisitorReviewRecord": {
+      "title": "VisitorReviewRecord",
+      "description": "Visitor star rating and testimonial review.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 2, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "rating": { "type": "number" },
+        "comment": { "type": "string", "minLength": 2, "maxLength": 2000 },
+        "role": { "type": "string", "maxLength": 120 },
+        "hidden": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "rating", "comment", "hidden", "createdAt"]
+    },
+    "SiteSettingsDoc": {
+      "title": "SiteSettingsDoc",
+      "description": "Shared site configuration and appearance settings.",
+      "type": "object",
+      "properties": {
+        "appName": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "appTagline": { "type": "string", "maxLength": 260 },
+        "brandHandle": { "type": "string", "maxLength": 80 },
+        "heroWisdomText": { "type": "string", "maxLength": 2000 },
+        "heroWisdomAuthor": { "type": "string", "maxLength": 160 },
+        "motherPrayerText": { "type": "string", "maxLength": 2000 },
+        "maintenanceMode": { "type": "boolean" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["appName", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/admins/{adminId}": {
+      "schema": { "$ref": "#/entities/AdminRecord" },
+      "description": "Trusted administrator records."
+    },
+    "/site_posts/{postId}": {
+      "schema": { "$ref": "#/entities/SitePost" },
+      "description": "Cloud-synced posts and reflections."
+    },
+    "/site_fatawa/{fatwaId}": {
+      "schema": { "$ref": "#/entities/SiteFatwa" },
+      "description": "Cloud-synced scholarly fatawa."
+    },
+    "/mother_oasis_items/{itemId}": {
+      "schema": { "$ref": "#/entities/MotherOasisRecord" },
+      "description": "Cloud-synced Mother Oasis books, transcribed lectures, and stories."
+    },
+    "/poetry_items/{itemId}": {
+      "schema": { "$ref": "#/entities/PoetryRecord" },
+      "description": "Cloud-synced Islamic poetry and classical anecdotes."
+    },
+    "/deaf_mute_videos/{videoId}": {
+      "schema": { "$ref": "#/entities/DeafMuteVideoRecord" },
+      "description": "Cloud-synced Deaf & Mute YouTube lessons and visual benefits."
+    },
+    "/custom_adhkar/{itemId}": {
+      "schema": { "$ref": "#/entities/CustomAdhkarRecord" },
+      "description": "Cloud-synced admin-added Adhkar and Duas."
+    },
+    "/library_books/{bookId}": {
+      "schema": { "$ref": "#/entities/CustomBookRecord" },
+      "description": "Cloud-synced scholarly book records."
+    },
+    "/visitor_reviews/{reviewId}": {
+      "schema": { "$ref": "#/entities/VisitorReviewRecord" },
+      "description": "Cloud-synced visitor star ratings and reviews."
+    },
+    "/site_settings/{docId}": {
+      "schema": { "$ref": "#/entities/SiteSettingsDoc" },
+      "description": "Shared cloud site configuration."
+    }
+  }
+}

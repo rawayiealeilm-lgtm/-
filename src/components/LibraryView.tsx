@@ -37,6 +37,7 @@ import {
   SH_YAHIA_SECTIONS,
 } from '../data/seed';
 import type {
+  CustomBookItem,
   HajouriLessonCategory,
   HajouriLessonItem,
   IndexedPdfBookMeta,
@@ -60,7 +61,18 @@ import {
 } from '../utils/pdfIndexedDb';
 import {resolveFontFamilyCss, resolveFontSizeSpec, useReadingPrefs} from '../utils/readingPrefs';
 import {createZipBlob, type ZipEntryInput} from '../utils/zipBuilder';
+import {ComingSoonState} from './ComingSoonState';
 import {ReadingControlsBar} from './ReadingControlsBar';
+
+function isSafeHttpUrl(url?: string): boolean {
+  if (!url || url === 'coming_soon') return false;
+  try {
+    const parsed = new URL(url.trim());
+    return parsed.protocol === 'https:' || parsed.protocol === 'http:';
+  } catch {
+    return false;
+  }
+}
 
 type PreviewMedia =
   | {kind: 'youtube'; item: YouTubeVideoItem}
@@ -88,6 +100,7 @@ export function LibraryView({
   posts,
   youtubeVideos,
   telegramAudios,
+  customBooks = [],
   siteConfig,
   bookmarkedIds,
   initialFilter = 'all',
@@ -103,6 +116,7 @@ export function LibraryView({
   posts: Post[];
   youtubeVideos: YouTubeVideoItem[];
   telegramAudios: TelegramAudioItem[];
+  customBooks?: CustomBookItem[];
   siteConfig: SiteConfig;
   bookmarkedIds: string[];
   initialFilter?: LibraryFilterType;
@@ -267,6 +281,22 @@ export function LibraryView({
       );
     });
   }, [uploadedPdfs, filterType, q]);
+
+  const filteredCloudBooks = useMemo(() => {
+    return customBooks.filter((b) => {
+      if (filterType === 'hajouri' && b.section !== 'hajouri') return false;
+      if (filterType === 'imams' && b.section !== 'imams') return false;
+      if (filterType === 'students' && b.section !== 'students') return false;
+      if (filterType === 'sada') return false;
+      return (
+        !q ||
+        b.title.toLowerCase().includes(q) ||
+        b.author.toLowerCase().includes(q) ||
+        b.category.toLowerCase().includes(q) ||
+        (b.summary || '').toLowerCase().includes(q)
+      );
+    });
+  }, [customBooks, filterType, q]);
 
   const filteredSadaProfiles = useMemo(() => {
     const base =
@@ -445,6 +475,7 @@ export function LibraryView({
     posts.length +
     LIBRARY_PDF_BOOKS.length +
     uploadedPdfs.length +
+    customBooks.length +
     SENIOR_IMAMS_WORKS.length +
     SHEIKH_STUDENTS_WORKS.length +
     SADA_AL_KHAIR_SCHOLARS.length +
@@ -594,7 +625,18 @@ export function LibraryView({
             })}
           </div>
 
-          {filteredHajouriLessons.length > 0 && (
+          {filteredHajouriLessons.length === 0 ? (
+            <ComingSoonState
+              badgeText="مكتبة الشيخ يحيى بن علي الحجوري"
+              title="قريباً بإذن الله — لم يُعثر على دروس مطابقة لهذا التصنيف"
+              description="يمكنك تصفية كل الدروس أو استكشاف المؤلفات والرسائل أدناه."
+              actionLabel="عرض كل دروس الشيخ"
+              onAction={() => {
+                setHajouriCategory('all');
+                setQuery('');
+              }}
+            />
+          ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
               {filteredHajouriLessons.map((lesson) => (
                 <article
@@ -814,12 +856,92 @@ export function LibraryView({
             </div>
           )}
 
+          {/* Cloud Admin-Added Books & References Shelf */}
+          {filteredCloudBooks.length > 0 && (
+            <div className="space-y-2.5">
+              <h3 className="text-xs font-extrabold text-[#006a46] dark:text-[#6cdba6]">
+                الكتب والرسائل السحابية المعتمدة ({formatNumber(filteredCloudBooks.length)})
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                {filteredCloudBooks.map((book) => {
+                  const hasValidUrl = isSafeHttpUrl(book.pdfUrl);
+                  return (
+                    <article
+                      key={book.id}
+                      className="rounded-2xl border border-emerald-600/25 bg-[#f4fbf7] dark:bg-[#0a1c15] p-4 flex flex-col justify-between gap-3"
+                    >
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between gap-2 text-[11px] font-bold">
+                          <span className="text-[#006a46] dark:text-[#6cdba6]">{book.category}</span>
+                          {book.sizeLabel && (
+                            <span className="text-[#6e7a71] dark:text-slate-400">{book.sizeLabel}</span>
+                          )}
+                        </div>
+                        <h4 className="text-sm sm:text-base font-extrabold text-[#0e1d25] dark:text-white">
+                          {book.title}
+                        </h4>
+                        <p className="text-xs font-semibold text-[#7c5800] dark:text-[#f2be5e]">{book.author}</p>
+                        {book.summary && (
+                          <p
+                            style={{fontFamily: readingFontCss}}
+                            className={`${readingSizeSpec.cardExcerptClass} text-[#3e4a42] dark:text-slate-300`}
+                          >
+                            {book.summary}
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-200/70 dark:border-white/10">
+                        {hasValidUrl ? (
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => openExternalPortal(book.pdfUrl, book.title)}
+                              className="min-h-[36px] px-3 rounded-xl bg-[#006a46] text-white text-xs font-bold flex items-center gap-1"
+                            >
+                              <BookOpen className="w-3.5 h-3.5" />
+                              <span>قراءة وتحميل</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void handleSharePdfBook(book.title, book.author)}
+                              aria-label="مشاركة الكتاب"
+                              className="min-w-[36px] min-h-[36px] rounded-xl bg-white dark:bg-white/10 flex items-center justify-center"
+                            >
+                              <Share2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="w-full rounded-xl bg-[#fffbf2] dark:bg-[#16231c] border border-amber-500/30 px-3 py-2 text-[11px] font-bold text-[#7c5800] dark:text-[#ffdea8] flex items-center justify-between gap-2">
+                            <span className="flex items-center gap-1.5">
+                              <Sparkles className="w-3.5 h-3.5 shrink-0" />
+                              <span>سيتم توفير رابط التحميل المباشر قريباً بإذن الله</span>
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => void handleSharePdfBook(book.title, book.author)}
+                              aria-label="مشاركة تفاصيل الكتاب"
+                              className="min-w-[30px] min-h-[30px] rounded-lg bg-white/80 dark:bg-white/10 flex items-center justify-center shrink-0"
+                            >
+                              <Share2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {/* Curated LIBRARY_PDF_BOOKS */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
             {LIBRARY_PDF_BOOKS.filter(
               (b) => !q || b.title.toLowerCase().includes(q) || b.author.toLowerCase().includes(q) || b.category.toLowerCase().includes(q),
             ).map((book) => {
               const dlCount = getItemDownloadCount(stats, book.id, 24);
+              const hasSafeUrl = isSafeHttpUrl(book.pdfUrl);
               return (
                 <article
                   key={book.id}
@@ -843,49 +965,68 @@ export function LibraryView({
                   </div>
 
                   <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-200/70 dark:border-white/10">
-                    <span className="text-xs text-[#6e7a71] dark:text-slate-400 tabular-nums">
-                      التحميلات: {formatNumber(dlCount)}
-                    </span>
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (book.pdfUrl.startsWith('http') && !book.pdfUrl.toLowerCase().endsWith('.pdf')) {
-                            openExternalPortal(book.pdfUrl, book.title);
-                            return;
-                          }
-                          setPdfViewer({
-                            title: book.title,
-                            url: book.pdfUrl,
-                            fileName: `${book.id}.pdf`,
-                            isBlob: false,
-                          });
-                        }}
-                        className="min-h-[38px] px-3 py-1.5 rounded-xl bg-[#e8f6ff] dark:bg-[#133126] text-[#006389] dark:text-[#80cfff] text-xs font-bold flex items-center gap-1"
-                      >
-                        <BookOpen className="w-3.5 h-3.5" />
-                        <span>قراءة في المكتبة</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void handleSharePdfBook(book.title, book.author)}
-                        aria-label="مشاركة الكتاب"
-                        className="min-w-[38px] min-h-[38px] rounded-xl bg-slate-100 dark:bg-white/10 flex items-center justify-center"
-                      >
-                        <Share2 className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          handleDownloadPdf(book);
-                          openExternalPortal(book.pdfUrl, book.title);
-                        }}
-                        className="min-h-[38px] px-3.5 py-1.5 rounded-xl bg-[#006a46] hover:bg-[#005235] text-white text-xs font-bold flex items-center gap-1.5 transition-colors"
-                      >
-                        <ExternalLink className="w-3.5 h-3.5" />
-                        <span>المصدر الرسمي</span>
-                      </button>
-                    </div>
+                    {hasSafeUrl ? (
+                      <>
+                        <span className="text-xs text-[#6e7a71] dark:text-slate-400 tabular-nums">
+                          التحميلات: {formatNumber(dlCount)}
+                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (!book.pdfUrl.toLowerCase().endsWith('.pdf')) {
+                                openExternalPortal(book.pdfUrl, book.title);
+                                return;
+                              }
+                              setPdfViewer({
+                                title: book.title,
+                                url: book.pdfUrl,
+                                fileName: `${book.id}.pdf`,
+                                isBlob: false,
+                              });
+                            }}
+                            className="min-h-[38px] px-3 py-1.5 rounded-xl bg-[#e8f6ff] dark:bg-[#133126] text-[#006389] dark:text-[#80cfff] text-xs font-bold flex items-center gap-1"
+                          >
+                            <BookOpen className="w-3.5 h-3.5" />
+                            <span>قراءة في المكتبة</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void handleSharePdfBook(book.title, book.author)}
+                            aria-label="مشاركة الكتاب"
+                            className="min-w-[38px] min-h-[38px] rounded-xl bg-slate-100 dark:bg-white/10 flex items-center justify-center"
+                          >
+                            <Share2 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              handleDownloadPdf(book);
+                              openExternalPortal(book.pdfUrl, book.title);
+                            }}
+                            className="min-h-[38px] px-3.5 py-1.5 rounded-xl bg-[#006a46] hover:bg-[#005235] text-white text-xs font-bold flex items-center gap-1.5 transition-colors"
+                          >
+                            <ExternalLink className="w-3.5 h-3.5" />
+                            <span>المصدر الرسمي</span>
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="w-full rounded-xl bg-[#fffbf2] dark:bg-[#16231c] border border-amber-500/35 px-3 py-2 text-xs font-bold text-[#7c5800] dark:text-[#ffdea8] flex items-center justify-between gap-2">
+                        <span className="flex items-center gap-1.5">
+                          <Sparkles className="w-3.5 h-3.5 shrink-0" />
+                          <span>صيغة زينة — سيتم توفير رابط التحميل المباشر قريباً بإذن الله</span>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => void handleSharePdfBook(book.title, book.author)}
+                          aria-label="مشاركة الكتاب"
+                          className="min-w-[34px] min-h-[34px] rounded-lg bg-white/80 dark:bg-white/10 flex items-center justify-center shrink-0"
+                        >
+                          <Share2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </article>
               );
@@ -894,31 +1035,120 @@ export function LibraryView({
         </section>
       )}
 
-      {/* Senior Imams Library Collection */}
+      {/* Senior Imams Library Collection — 4 Luxurious Scholar Cards */}
       {(filterType === 'all' || filterType === 'imams') && (
-        <section className="space-y-3.5">
-          <div className="flex items-center justify-between px-1">
-            <h2 className="text-base sm:text-lg font-extrabold text-[#0e1d25] dark:text-white">
-              مكتبة الأئمة الكبار (الوادعي · ابن باز · ابن عثيمين · الألباني رحمهم الله)
-            </h2>
+        <section className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-2 px-1">
+            <div>
+              <h2 className="text-base sm:text-lg font-extrabold text-[#0e1d25] dark:text-white">
+                مكتبة الأئمة الكبار (الوادعي · ابن باز · ابن عثيمين · الألباني رحمهم الله)
+              </h2>
+              <p className="text-xs text-[#6e7a71] dark:text-slate-400">
+                أمهات المؤلفات والرسائل المنهجية المعتمدة للأئمة الأربعة مع تجهيز روابط التحميل المباشر قريباً بإذن الله
+              </p>
+            </div>
           </div>
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {SENIOR_IMAMS_WORKS.map((entry) => (
-              <article
-                key={entry.id}
-                className="rounded-2xl border border-slate-200/80 dark:border-white/10 bg-white dark:bg-[#0c211a] p-5 space-y-2.5"
-              >
-                <span className="text-xs font-bold text-[#006a46] dark:text-[#6cdba6]">{entry.category}</span>
-                <h3 className="text-base font-extrabold text-[#0e1d25] dark:text-white">{entry.title}</h3>
-                <p className="text-xs font-bold text-[#7c5800] dark:text-[#f2be5e]">{entry.author}</p>
-                <p
-                  style={{fontFamily: readingFontCss}}
-                  className={`${readingSizeSpec.bodyClass} text-[#28352e] dark:text-slate-200`}
+            {[
+              {
+                key: 'wadaei',
+                name: 'الإمام مقبل بن هادي الوادعي رحمه الله',
+                epithet: 'محدّث الديار اليمنية ومجدد الدعوة السلفية في دماج',
+                match: 'الوادعي',
+              },
+              {
+                key: 'binbaz',
+                name: 'سماحة الإمام عبد العزيز بن باز رحمه الله',
+                epithet: 'مفتي عام المملكة العربية السعودية ورئيس هيئة كبار العلماء سابقاً',
+                match: 'بن باز',
+              },
+              {
+                key: 'uthaymeen',
+                name: 'فضيلة الشيخ الإمام محمد بن صالح العثيمين رحمه الله',
+                epithet: 'الفقيه الأصولي المفسر عضو هيئة كبار العلماء',
+                match: 'العثيمين',
+              },
+              {
+                key: 'albani',
+                name: 'الإمام المحدّث محمد ناصر الدين الألباني رحمه الله',
+                epithet: 'محدّث العصر وخادم السنة النبوية ومصحح الأسانيد',
+                match: 'الألباني',
+              },
+            ].map((imam) => {
+              const imamWorks = SENIOR_IMAMS_WORKS.filter(
+                (w) =>
+                  (w.author.includes(imam.match) || w.title.includes(imam.match) || w.category.includes(imam.match)) &&
+                  (!q ||
+                    imam.name.toLowerCase().includes(q) ||
+                    w.title.toLowerCase().includes(q) ||
+                    w.body.toLowerCase().includes(q)),
+              );
+              return (
+                <article
+                  key={imam.key}
+                  className="rounded-3xl border border-amber-500/35 bg-gradient-to-br from-[#fffdf7] via-white to-[#eefaf3] dark:from-[#0f231b] dark:via-[#0c211a] dark:to-[#131d17] p-5 sm:p-6 shadow-xs flex flex-col justify-between gap-4"
                 >
-                  {entry.body}
-                </p>
-              </article>
-            ))}
+                  <div className="space-y-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <span className="inline-block px-2.5 py-0.5 rounded-lg bg-[#006a46]/10 text-[#006a46] dark:bg-[#6cdba6]/15 dark:text-[#6cdba6] text-[11px] font-extrabold mb-1.5">
+                          أئمة السلف وأهل السنة والجماعة
+                        </span>
+                        <h3 className="text-base sm:text-lg font-extrabold text-[#0e1d25] dark:text-white leading-snug">
+                          {imam.name}
+                        </h3>
+                        <p className="text-xs font-semibold text-[#7c5800] dark:text-[#f2be5e] mt-0.5">
+                          {imam.epithet}
+                        </p>
+                      </div>
+                      <div className="w-10 h-10 rounded-2xl bg-[#006a46] text-[#ffdea8] flex items-center justify-center shrink-0">
+                        <GraduationCap className="w-5 h-5" />
+                      </div>
+                    </div>
+
+                    {imamWorks.length > 0 ? (
+                      <div className="space-y-2 pt-1">
+                        {imamWorks.map((entry) => (
+                          <div
+                            key={entry.id}
+                            className="rounded-2xl bg-white/90 dark:bg-[#081712] border border-slate-200/75 dark:border-white/10 p-3.5 space-y-1"
+                          >
+                            <div className="flex items-center justify-between gap-2 text-[11px] font-bold text-[#006a46] dark:text-[#6cdba6]">
+                              <span>{entry.category}</span>
+                            </div>
+                            <h4 className="text-xs sm:text-sm font-extrabold text-[#0e1d25] dark:text-white">
+                              {entry.title}
+                            </h4>
+                            <p
+                              style={{fontFamily: readingFontCss}}
+                              className={`${readingSizeSpec.cardExcerptClass} text-[#28352e] dark:text-slate-300 text-xs`}
+                            >
+                              {entry.body}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-[#6e7a71] dark:text-slate-400">
+                        مجموعة مختارة من أشهر مؤلفات الإمام رحمه الله.
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Decorative Zina Coming-Soon Download Notice */}
+                  <div className="rounded-2xl bg-gradient-to-l from-[#fff7e6] to-[#f4fbf7] dark:from-[#19241b] dark:to-[#10251c] border border-amber-500/35 px-4 py-2.5 flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 text-xs font-bold text-[#7c5800] dark:text-[#ffdea8]">
+                      <Sparkles className="w-4 h-4 shrink-0 text-amber-600 dark:text-amber-300" />
+                      <span>سيتم توفير رابط التحميل المباشر قريباً بإذن الله</span>
+                    </div>
+                    <span className="px-2 py-0.5 rounded-lg bg-[#006a46] text-white text-[10px] font-extrabold shrink-0">
+                      قريباً
+                    </span>
+                  </div>
+                </article>
+              );
+            })}
           </div>
         </section>
       )}
@@ -990,36 +1220,49 @@ export function LibraryView({
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {filteredSadaProfiles.map((prof) => {
-              const isPoet = prof.category === 'poet';
-              return (
-                <div
-                  key={prof.id}
-                  className={`rounded-2xl border p-4 space-y-1.5 ${
-                    isPoet
-                      ? 'bg-[#fffaf0] dark:bg-[#161a14] border-amber-500/30'
-                      : 'bg-white dark:bg-[#0a1c15] border-slate-200/80 dark:border-white/10'
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <span
-                      className={`text-[11px] font-extrabold px-2 py-0.5 rounded-lg ${
-                        isPoet
-                          ? 'bg-amber-100 text-amber-900 dark:bg-amber-950/60 dark:text-amber-300'
-                          : 'bg-[#eefaf3] text-[#006a46] dark:bg-emerald-950/60 dark:text-[#6cdba6]'
-                      }`}
-                    >
-                      {isPoet ? 'شعراء السنة' : 'مشايخ صدى الخير'}
-                    </span>
-                    {isPoet && <Feather className="w-3.5 h-3.5 text-amber-700 dark:text-amber-300" />}
+          {filteredSadaProfiles.length === 0 ? (
+            <ComingSoonState
+              badgeText="صدى الخير الدعوية"
+              title="قريباً — لم يُعثر على نتائج مطابقة"
+              description="جرّب مسح البحث لعرض جميع مشايخ وعلماء صدى الخير (٢٧ شيخاً) وشعراء السنة (٤ شعراء)."
+              actionLabel="عرض جميع المشايخ والشعراء"
+              onAction={() => {
+                setSadaTab('all');
+                setQuery('');
+              }}
+            />
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {filteredSadaProfiles.map((prof) => {
+                const isPoet = prof.category === 'poet';
+                return (
+                  <div
+                    key={prof.id}
+                    className={`rounded-2xl border p-4 space-y-1.5 ${
+                      isPoet
+                        ? 'bg-[#fffaf0] dark:bg-[#161a14] border-amber-500/30'
+                        : 'bg-white dark:bg-[#0a1c15] border-slate-200/80 dark:border-white/10'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span
+                        className={`text-[11px] font-extrabold px-2 py-0.5 rounded-lg ${
+                          isPoet
+                            ? 'bg-amber-100 text-amber-900 dark:bg-amber-950/60 dark:text-amber-300'
+                            : 'bg-[#eefaf3] text-[#006a46] dark:bg-emerald-950/60 dark:text-[#6cdba6]'
+                        }`}
+                      >
+                        {isPoet ? 'شعراء السنة' : 'مشايخ صدى الخير'}
+                      </span>
+                      {isPoet && <Feather className="w-3.5 h-3.5 text-amber-700 dark:text-amber-300" />}
+                    </div>
+                    <h3 className="text-sm font-extrabold text-[#0e1d25] dark:text-white">{prof.name}</h3>
+                    <p className="text-xs text-[#6e7a71] dark:text-slate-400">{prof.title}</p>
                   </div>
-                  <h3 className="text-sm font-extrabold text-[#0e1d25] dark:text-white">{prof.name}</h3>
-                  <p className="text-xs text-[#6e7a71] dark:text-slate-400">{prof.title}</p>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          )}
         </section>
       )}
 

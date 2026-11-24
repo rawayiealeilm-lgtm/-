@@ -183,7 +183,7 @@ export function SplashScreen({onFinish}: {onFinish: () => void}) {
           </button>
 
           <p className="text-[11px] text-emerald-300/75 font-medium">
-            {tr('مع تحيات أبو تراب · اضغط «ابدأ» للدخول إلى المنصة', 'By Abu Turab · Press "Start" to enter the platform')}
+            {tr('بإشراف فريق مواعظ وعبر · اضغط «ابدأ» للدخول إلى المنصة', 'Supervised by Mawaedh & Ibar Team · Press "Start" to enter')}
           </p>
         </div>
       </div>

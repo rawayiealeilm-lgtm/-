@@ -1,4 +1,15 @@
-import {DEFAULT_SNAPSHOT, INITIAL_FATAWA, INITIAL_POSTS, INITIAL_SOCIAL_LINKS} from '../data/seed';
+import {
+  APPROVED_DATASETS,
+  INITIAL_DEAF_MUTE_VIDEOS,
+  appendOnlyMergeById,
+} from '../data/contentRepository';
+import {
+  DEFAULT_SNAPSHOT,
+  INITIAL_FATAWA,
+  INITIAL_MOTHER_OASIS_ITEMS,
+  INITIAL_POSTS,
+  INITIAL_SOCIAL_LINKS,
+} from '../data/seed';
 import type {BootstrapSnapshot} from '../types';
 
 const SNAPSHOT_KEY = 'mawaedh_snapshot_v4';
@@ -13,36 +24,30 @@ export function loadSnapshot(): BootstrapSnapshot {
       // ignore storage quota/access issues
     }
     const raw = window.localStorage.getItem(SNAPSHOT_KEY);
-    if (!raw) return DEFAULT_SNAPSHOT;
+    if (!raw) {
+      return {
+        ...DEFAULT_SNAPSHOT,
+        deafMuteVideos: INITIAL_DEAF_MUTE_VIDEOS,
+        customAdhkar: [],
+        customBooks: [],
+      };
+    }
     const parsed = JSON.parse(raw) as Partial<BootstrapSnapshot>;
 
-    const posts = (() => {
-      if (!Array.isArray(parsed.posts) || parsed.posts.length === 0) {
-        return DEFAULT_SNAPSHOT.posts;
-      }
-      const existingIds = new Set(parsed.posts.map((p) => p.id));
-      const merged = [...parsed.posts];
-      for (const seedPost of INITIAL_POSTS) {
-        if (!existingIds.has(seedPost.id)) {
-          merged.push(seedPost);
-        }
-      }
-      return merged;
-    })();
-
-    const fatawa = (() => {
-      if (!Array.isArray(parsed.fatawa) || parsed.fatawa.length === 0) {
-        return DEFAULT_SNAPSHOT.fatawa;
-      }
-      const existingIds = new Set(parsed.fatawa.map((f) => f.id));
-      const merged = [...parsed.fatawa];
-      for (const seedFatwa of INITIAL_FATAWA) {
-        if (!existingIds.has(seedFatwa.id)) {
-          merged.push(seedFatwa);
-        }
-      }
-      return merged;
-    })();
+    const posts = appendOnlyMergeById(parsed.posts, INITIAL_POSTS);
+    const fatawa = appendOnlyMergeById(parsed.fatawa, INITIAL_FATAWA);
+    const motherOasisItems = appendOnlyMergeById(
+      parsed.motherOasisItems,
+      INITIAL_MOTHER_OASIS_ITEMS,
+    );
+    const visitorReviews = appendOnlyMergeById(
+      parsed.visitorReviews,
+      APPROVED_DATASETS.visitorReviews,
+    );
+    const deafMuteVideos = appendOnlyMergeById(
+      parsed.deafMuteVideos,
+      INITIAL_DEAF_MUTE_VIDEOS,
+    );
 
     const socialLinks = (() => {
       if (!Array.isArray(parsed.socialLinks) || parsed.socialLinks.length === 0) {
@@ -104,12 +109,9 @@ export function loadSnapshot(): BootstrapSnapshot {
               !parsed.siteConfig.hisnTitle || parsed.siteConfig.hisnTitle.includes('حصن')
                 ? DEFAULT_SNAPSHOT.siteConfig.hisnTitle
                 : parsed.siteConfig.hisnTitle,
-            supportEmail:
-              typeof parsed.siteConfig.supportEmail === 'string' && parsed.siteConfig.supportEmail.trim()
-                ? parsed.siteConfig.supportEmail.trim()
-                : DEFAULT_SNAPSHOT.siteConfig.supportEmail,
+            supportEmail: '',
           }
-        : DEFAULT_SNAPSHOT.siteConfig,
+        : {...DEFAULT_SNAPSHOT.siteConfig, supportEmail: ''},
       brandHandle:
         typeof parsed.brandHandle === 'string' && parsed.brandHandle.trim()
           ? parsed.brandHandle
@@ -122,13 +124,21 @@ export function loadSnapshot(): BootstrapSnapshot {
         typeof parsed.visitorsCount === 'number' ? parsed.visitorsCount : DEFAULT_SNAPSHOT.visitorsCount,
       clicksCount: typeof parsed.clicksCount === 'number' ? parsed.clicksCount : DEFAULT_SNAPSHOT.clicksCount,
       nafahatMeta: parsed.nafahatMeta,
-      motherOasisItems: Array.isArray(parsed.motherOasisItems) ? parsed.motherOasisItems : DEFAULT_SNAPSHOT.motherOasisItems,
-      visitorReviews: Array.isArray(parsed.visitorReviews) ? parsed.visitorReviews : DEFAULT_SNAPSHOT.visitorReviews,
+      motherOasisItems,
+      visitorReviews,
+      deafMuteVideos,
+      customAdhkar: Array.isArray(parsed.customAdhkar) ? parsed.customAdhkar : [],
+      customBooks: Array.isArray(parsed.customBooks) ? parsed.customBooks : [],
       gesture: parsed.gesture === 'multi_tap' ? 'multi_tap' : 'long_press',
       cachedAt: typeof parsed.cachedAt === 'string' ? parsed.cachedAt : DEFAULT_SNAPSHOT.cachedAt,
     };
   } catch {
-    return DEFAULT_SNAPSHOT;
+    return {
+      ...DEFAULT_SNAPSHOT,
+      deafMuteVideos: INITIAL_DEAF_MUTE_VIDEOS,
+      customAdhkar: [],
+      customBooks: [],
+    };
   }
 }
 

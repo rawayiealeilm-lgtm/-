@@ -1,9 +1,10 @@
-import {BookMarked, BookOpen, Feather, FileText, Heart, Sparkles} from 'lucide-react';
+import {BookMarked, BookOpen, Clock, Feather, FileText, Heart, Sparkles} from 'lucide-react';
 import {useMemo, useState} from 'react';
 import {MOTHER_OASIS_SIGNATURE} from '../data/seed';
 import type {MotherOasisChapter, MotherOasisItem, NavTab} from '../types';
 import {useI18n} from '../utils/i18n';
 import {resolveFontFamilyCss, resolveFontSizeSpec, useReadingPrefs} from '../utils/readingPrefs';
+import {ComingSoonState} from './ComingSoonState';
 
 const MOTHER_CHAPTERS: Array<{
   id: 'all' | MotherOasisChapter;
@@ -34,12 +35,16 @@ export function MotherOasisView({
   hasPrayedForMother,
   onAmenMother,
   onNavigate,
+  isAdmin = false,
+  onAdminQuickAdd,
 }: {
   items: MotherOasisItem[];
   motherPrayersCount: number;
   hasPrayedForMother: boolean;
   onAmenMother: () => void;
   onNavigate?: (tab: NavTab) => void;
+  isAdmin?: boolean;
+  onAdminQuickAdd?: () => void;
 }) {
   const {formatNumber} = useI18n();
   const {prefs} = useReadingPrefs();
@@ -81,15 +86,36 @@ export function MotherOasisView({
       {/* Quiet Warm Introduction Card */}
       <section className="rounded-3xl border border-amber-500/30 bg-gradient-to-br from-[#fffaf2] via-[#fdfbf7] to-[#f4f7f5] dark:from-[#1b1710] dark:via-[#141916] dark:to-[#0c211a] p-6 sm:p-8 shadow-sm space-y-5">
         <div className="space-y-2.5">
-          <p className="text-xs font-extrabold text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
-            <Sparkles className="w-4 h-4" />
-            <span>واحة دعوية وتربوية هادئة · محتوى نصي محرر فقط</span>
-          </p>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs font-extrabold text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
+              <Sparkles className="w-4 h-4" />
+              <span>واحة دعوية وتربوية هادئة · محتوى نصي محرر فقط</span>
+            </p>
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-amber-100/95 dark:bg-amber-900/50 text-amber-900 dark:text-amber-200 text-xs font-extrabold border border-amber-500/30">
+              <Clock className="w-3.5 h-3.5" />
+              <span>قريباً بإذن الله · تنزيل متتابع</span>
+            </span>
+          </div>
           <h1 className="text-2xl sm:text-3xl font-extrabold text-[#0e1d25] dark:text-white leading-snug">
             واحة الداعية الفاضلة أمي: أم محمد إكرام عبده علي
           </h1>
           <p className="text-sm sm:text-base text-[#3e4a42] dark:text-slate-300 max-w-3xl leading-relaxed">
             صفحة مخصصة هادئة ودافئة تجمع بفضل الله ما تيسّر من كتب ورسائل ومواعظ مفرغة وقصص وعبر تربوية بقلم الداعية الفاضلة أم محمد إكرام عبده علي حفظها الله، لتكون علماً نافعاً وأثراً طيباً باقياً.
+          </p>
+        </div>
+
+        {/* Calm & Encouraging Coming-Soon Progress Banner */}
+        <div className="rounded-2xl bg-white/85 dark:bg-[#0c1d17]/90 border border-amber-500/30 p-4 sm:p-5 space-y-2">
+          <div className="flex items-center gap-2 text-xs sm:text-sm font-extrabold text-[#7c5800] dark:text-[#ffdea8]">
+            <Clock className="w-4 h-4 shrink-0" />
+            <span>قريباً جداً بإذن الله · العمل جارٍ على تطوير المحتوى</span>
+          </div>
+          <p className="text-xs sm:text-sm text-[#3e4a42] dark:text-slate-300 leading-relaxed">
+            سيتم تنزيل القصص والمحاضرات والدروس والرسائل التربوية تباعاً في أبواب هذه الواحة المباركة قريباً جداً، والعمل جارٍ حالياً على تفريغ المواد وتنقيحها وتنسيقها؛ وندعو زوارنا الكرام إلى التحلي بالصبر والترقب، سائلين الله أن يكتب القبول والأجر.
+          </p>
+          <p className="text-xs font-extrabold text-amber-800 dark:text-amber-300 flex items-center gap-1.5 pt-1">
+            <Feather className="w-3.5 h-3.5 shrink-0" />
+            <span>{MOTHER_OASIS_SIGNATURE}</span>
           </p>
         </div>
 
@@ -112,15 +138,26 @@ export function MotherOasisView({
             </span>
           </div>
 
-          {onNavigate && (
-            <button
-              type="button"
-              onClick={() => onNavigate('adhkar')}
-              className="min-h-[40px] px-4 py-2 rounded-xl bg-amber-100 dark:bg-amber-900/35 text-amber-900 dark:text-amber-200 text-xs font-bold hover:brightness-95 transition-colors"
-            >
-              الانتقال إلى «وقفة بر ووفاء» في الأذكار ←
-            </button>
-          )}
+          <div className="flex flex-wrap items-center gap-2">
+            {isAdmin && onAdminQuickAdd && (
+              <button
+                type="button"
+                onClick={onAdminQuickAdd}
+                className="min-h-[40px] px-4 py-2 rounded-xl bg-[#006a46] hover:bg-[#005235] text-white text-xs font-extrabold transition-colors"
+              >
+                + إضافة مادة لواحة أمي
+              </button>
+            )}
+            {onNavigate && (
+              <button
+                type="button"
+                onClick={() => onNavigate('adhkar')}
+                className="min-h-[40px] px-4 py-2 rounded-xl bg-amber-100 dark:bg-amber-900/35 text-amber-900 dark:text-amber-200 text-xs font-bold hover:brightness-95 transition-colors"
+              >
+                الانتقال إلى «وقفة بر ووفاء» في الأذكار ←
+              </button>
+            )}
+          </div>
         </div>
       </section>
 
@@ -142,13 +179,23 @@ export function MotherOasisView({
               }`}
             >
               <span>{ch.label}</span>
-              <span
-                className={`text-xs tabular-nums ${
-                  active ? 'text-[#ffdea8]' : 'text-[#006a46] dark:text-[#6cdba6]'
-                }`}
-              >
-                ({formatNumber(count)})
-              </span>
+              {count === 0 ? (
+                <span
+                  className={`text-[11px] font-extrabold px-2 py-0.5 rounded-lg ${
+                    active ? 'bg-white/20 text-[#ffdea8]' : 'bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-200'
+                  }`}
+                >
+                  قريباً
+                </span>
+              ) : (
+                <span
+                  className={`text-xs tabular-nums ${
+                    active ? 'text-[#ffdea8]' : 'text-[#006a46] dark:text-[#6cdba6]'
+                  }`}
+                >
+                  ({formatNumber(count)})
+                </span>
+              )}
             </button>
           );
         })}
@@ -156,14 +203,16 @@ export function MotherOasisView({
 
       {/* Articles / Works Feed */}
       {filteredItems.length === 0 ? (
-        <div className="rounded-3xl bg-white dark:bg-[#0c211a] border border-slate-200/80 dark:border-white/10 p-10 text-center space-y-2">
-          <p className="text-sm font-bold text-[#0e1d25] dark:text-white">
-            لا توجد مواد منشورة في هذا الباب حالياً
-          </p>
-          <p className="text-xs text-[#6e7a71] dark:text-slate-400">
-            يمكن إضافة مؤلفات ومحاضرات مفرغة وقصص جديدة من لوحة إدارة «واحة الداعية الفاضلة أمي».
-          </p>
-        </div>
+        <ComingSoonState
+          badgeText="قريباً بإذن الله"
+          title="سيتم تنزيل القصص والمحاضرات والدروس في هذا الباب قريباً جداً"
+          description="العمل جارٍ على تطوير وتفريغ ومراجعة المحتوى العلمي والتربوي ليُعرض هنا بصفاء ووضوح. ندعوكم للتحلي بالصبر والترقب ريثما تكتمل الإضافات."
+          encouragementText="تبقى إضافات المشرف متاحة في كل وقت وتُحفظ وتُعتمد تلقائياً في قاعدة البيانات السحابية."
+          signature={MOTHER_OASIS_SIGNATURE}
+          isAdmin={isAdmin}
+          onAdminQuickAdd={onAdminQuickAdd}
+          adminAddLabel="+ إضافة مقالة أو درس لهذا الباب"
+        />
       ) : (
         <div className="space-y-4">
           {filteredItems.map((item) => {

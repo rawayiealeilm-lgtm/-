@@ -8,14 +8,16 @@ import {
   Lightbulb,
   MessageSquarePlus,
   MessageSquareText,
+  Radio,
   Send,
   Sparkles,
   Trash2,
   UserPlus,
+  Video,
   X,
 } from 'lucide-react';
 import {useEffect, useRef, useState, type FormEvent} from 'react';
-import type {NavTab, SiteConfig} from '../types';
+import type {CustomBookItem, LiveSupportMessage, NavTab, SiteConfig} from '../types';
 import {useI18n} from '../utils/i18n';
 import {listPdfBooksFromIndexedDb} from '../utils/pdfIndexedDb';
 
@@ -23,19 +25,32 @@ interface ChatMessage {
   id: string;
   role: 'user' | 'model';
   text: string;
+  offerLiveConnect?: boolean;
 }
 
-type AssistantTab = 'chat' | 'submit';
+type AssistantTab = 'chat' | 'live' | 'submit';
 type AssistantSubmissionKind = 'suggestion' | 'team_join' | 'contribution' | 'help';
+
+function isSafeHttpsUrl(raw?: string): boolean {
+  if (!raw) return false;
+  try {
+    const parsed = new URL(raw.trim());
+    return parsed.protocol === 'https:' || parsed.protocol === 'http:';
+  } catch {
+    return false;
+  }
+}
 
 export function AIChatWidget({
   siteConfig,
   activeTab,
+  customBooks = [],
   onMessageSubmitted,
   onNotify,
 }: {
   siteConfig: SiteConfig;
   activeTab: NavTab;
+  customBooks?: CustomBookItem[];
   onMessageSubmitted?: () => void;
   onNotify: (msg: string) => void;
 }) {
@@ -49,6 +64,27 @@ export function AIChatWidget({
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Live WebSocket Support State
+  const [liveSessionId] = useState<string>(() => {
+    if (typeof window === 'undefined') return `live_${Date.now().toString(36)}`;
+    try {
+      const existing = window.sessionStorage.getItem('mawaedh_live_session_id');
+      if (existing) return existing;
+      const fresh = `live_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+      window.sessionStorage.setItem('mawaedh_live_session_id', fresh);
+      return fresh;
+    } catch {
+      return `live_${Date.now().toString(36)}`;
+    }
+  });
+  const [liveVisitorName, setLiveVisitorName] = useState('');
+  const [liveMessages, setLiveMessages] = useState<LiveSupportMessage[]>([]);
+  const [liveInput, setLiveInput] = useState('');
+  const [liveConnected, setLiveConnected] = useState(false);
+  const [liveMeetUrl, setLiveMeetUrl] = useState<string | null>(null);
+  const liveWsRef = useRef<WebSocket | null>(null);
+  const liveScrollRef = useRef<HTMLDivElement>(null);
 
   // Direct Admin Submission State
   const [subKind, setSubKind] = useState<AssistantSubmissionKind>('suggestion');
@@ -67,7 +103,92 @@ export function AIChatWidget({
     if (open && panelTab === 'chat' && scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [messages, open, loading, panelTab]);
+    if (open && panelTab === 'live' && liveScrollRef.current) {
+      liveScrollRef.current.scrollTop = liveScrollRef.current.scrollHeight;
+    }
+  }, [messages, liveMessages, open, loading, panelTab]);
+
+  useEffect(() => {
+    if (!open || panelTab !== 'live') {
+      if (liveWsRef.current) {
+        liveWsRef.current.close();
+        liveWsRef.current = null;
+      }
+      setLiveConnected(false);
+      return;
+    }
+
+    const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const ws = new WebSocket(`${proto}//${window.location.host}/ws/live-support`);
+    liveWsRef.current = ws;
+
+    ws.onopen = () => {
+      setLiveConnected(true);
+      ws.send(
+        JSON.stringify({
+          type: 'join',
+          role: 'visitor',
+          sessionId: liveSessionId,
+          visitorName: liveVisitorName.trim() || tr('زائر الكريم', 'Guest'),
+          topic: 'ai_escalation',
+        }),
+      );
+    };
+
+    ws.onmessage = (ev) => {
+      try {
+        const pkt = JSON.parse(String(ev.data)) as {
+          type?: string;
+          messages?: LiveSupportMessage[];
+          message?: LiveSupportMessage;
+          meetUrl?: string;
+          meetInviteUrl?: string;
+        };
+        if (pkt.type === 'history' && Array.isArray(pkt.messages)) {
+          setLiveMessages(pkt.messages);
+        } else if (pkt.type === 'message' && pkt.message) {
+          setLiveMessages((prev) =>
+            prev.some((m) => m.id === pkt.message!.id) ? prev : [...prev, pkt.message!],
+          );
+        } else if (pkt.type === 'meet_invite' && isSafeHttpsUrl(pkt.meetUrl || pkt.meetInviteUrl)) {
+          setLiveMeetUrl((pkt.meetUrl || pkt.meetInviteUrl)!);
+        }
+        if (isSafeHttpsUrl(pkt.meetInviteUrl)) {
+          setLiveMeetUrl(pkt.meetInviteUrl!);
+        }
+      } catch {
+        // Ignore malformed packets
+      }
+    };
+
+    ws.onclose = () => setLiveConnected(false);
+    ws.onerror = () => setLiveConnected(false);
+
+    return () => {
+      ws.close();
+      liveWsRef.current = null;
+    };
+  }, [open, panelTab, liveSessionId, liveVisitorName, tr]);
+
+  const sendLiveMessage = (e: FormEvent) => {
+    e.preventDefault();
+    const trimmed = liveInput.trim();
+    if (!trimmed) return;
+    if (liveWsRef.current && liveWsRef.current.readyState === WebSocket.OPEN) {
+      liveWsRef.current.send(
+        JSON.stringify({
+          type: 'message',
+          sessionId: liveSessionId,
+          senderRole: 'visitor',
+          senderName: liveVisitorName.trim() || tr('زائر', 'Visitor'),
+          text: trimmed,
+        }),
+      );
+      setLiveInput('');
+    } else {
+      onNotify(tr('الاتصال غير جاهز حالياً، يمكنك إرسال تذكرة من التبويب المجاور.', 'Live connection unavailable; use the ticket form.'));
+    }
+  };
 
   const starterPrompts = isEn
     ? [
@@ -100,6 +221,10 @@ export function AIChatWidget({
 
     try {
       const uploadedBooks = await listPdfBooksFromIndexedDb().catch(() => []);
+      const combinedBooks = [
+        ...uploadedBooks.map((b) => ({title: b.title, author: b.author, section: b.section})),
+        ...customBooks.map((b) => ({title: b.title, author: b.author, section: b.section})),
+      ];
       const res = await fetch('/api/ai/assistant', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
@@ -107,14 +232,10 @@ export function AIChatWidget({
           message: trimmed,
           history: messages.slice(-8).map((m) => ({role: m.role, text: m.text})),
           lang,
-          uploadedBooks: uploadedBooks.map((b) => ({
-            title: b.title,
-            author: b.author,
-            section: b.section,
-          })),
+          uploadedBooks: combinedBooks,
         }),
       });
-      const data = (await res.json()) as {reply?: string; error?: string};
+      const data = (await res.json()) as {reply?: string; offerLiveConnect?: boolean; error?: string};
       if (!res.ok || !data.reply) {
         throw new Error(
           data.error ||
@@ -131,6 +252,7 @@ export function AIChatWidget({
           id: `m_${Date.now().toString(36)}`,
           role: 'model',
           text: data.reply!,
+          offerLiveConnect: Boolean(data.offerLiveConnect),
         },
       ]);
     } catch (err) {
@@ -312,18 +434,30 @@ export function AIChatWidget({
               </div>
 
               {/* Assistant Mode Tabs */}
-              <div className="grid grid-cols-2 gap-1.5 p-1 rounded-xl bg-black/20">
+              <div className="grid grid-cols-3 gap-1 p-1 rounded-xl bg-black/20">
                 <button
                   type="button"
                   onClick={() => setPanelTab('chat')}
-                  className={`min-h-[36px] px-3 py-1.5 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-colors ${
+                  className={`min-h-[36px] px-2 py-1.5 rounded-lg text-[11px] sm:text-xs font-bold flex items-center justify-center gap-1 transition-colors ${
                     panelTab === 'chat'
                       ? 'bg-[#ffdea8] text-[#271900] shadow-xs'
                       : 'text-white/90 hover:bg-white/10'
                   }`}
                 >
                   <MessageSquareText className="w-3.5 h-3.5 shrink-0" />
-                  <span>{tr('محادثة مساعدك الدعوي', 'Ask Dawah Guide')}</span>
+                  <span>{tr('مساعدك الدعوي', 'Dawah Guide')}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPanelTab('live')}
+                  className={`min-h-[36px] px-2 py-1.5 rounded-lg text-[11px] sm:text-xs font-bold flex items-center justify-center gap-1 transition-colors ${
+                    panelTab === 'live'
+                      ? 'bg-[#ffdea8] text-[#271900] shadow-xs'
+                      : 'text-white/90 hover:bg-white/10'
+                  }`}
+                >
+                  <Radio className="w-3.5 h-3.5 shrink-0" />
+                  <span>{tr('التواصل المباشر', 'Direct Chat')}</span>
                 </button>
                 <button
                   type="button"
@@ -331,14 +465,14 @@ export function AIChatWidget({
                     setPanelTab('submit');
                     setFormSuccess(false);
                   }}
-                  className={`min-h-[36px] px-3 py-1.5 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-colors ${
+                  className={`min-h-[36px] px-2 py-1.5 rounded-lg text-[11px] sm:text-xs font-bold flex items-center justify-center gap-1 transition-colors ${
                     panelTab === 'submit'
                       ? 'bg-[#ffdea8] text-[#271900] shadow-xs'
                       : 'text-white/90 hover:bg-white/10'
                   }`}
                 >
                   <MessageSquarePlus className="w-3.5 h-3.5 shrink-0" />
-                  <span>{tr('رسالة / مقترح / عمل', 'Message / Proposal / Team')}</span>
+                  <span>{tr('مقترح / عمل', 'Ticket / Team')}</span>
                 </button>
               </div>
             </header>
@@ -428,11 +562,20 @@ export function AIChatWidget({
                         >
                           <div className="whitespace-pre-line">{msg.text}</div>
                           {!isUser && (
-                            <div className="pt-1.5 border-t border-slate-100 dark:border-white/10 flex justify-end">
+                            <div className="pt-1.5 border-t border-slate-100 dark:border-white/10 flex flex-wrap items-center justify-between gap-2">
+                              {msg.offerLiveConnect && (
+                                <button
+                                  type="button"
+                                  onClick={() => setPanelTab('live')}
+                                  className="px-2.5 py-1 rounded-lg bg-[#eefaf3] dark:bg-[#133126] text-[#006a46] dark:text-[#6cdba6] text-[11px] font-bold hover:brightness-95"
+                                >
+                                  {tr('فتح نافذة التواصل المباشر ←', 'Continue to Direct Chat')}
+                                </button>
+                              )}
                               <button
                                 type="button"
                                 onClick={() => void copyReply(msg.text)}
-                                className="text-[11px] font-semibold text-[#006a46] dark:text-[#6cdba6] flex items-center gap-1 hover:underline"
+                                className="text-[11px] font-semibold text-[#006a46] dark:text-[#6cdba6] flex items-center gap-1 hover:underline ms-auto"
                               >
                                 <Copy className="w-3 h-3" />
                                 <span>{tr('نسخ الإجابة', 'Copy')}</span>
@@ -479,6 +622,102 @@ export function AIChatWidget({
                     disabled={loading || !input.trim()}
                     aria-label={tr('إرسال', 'Send')}
                     className="min-w-[44px] min-h-[44px] px-3.5 rounded-xl bg-[#006a46] hover:bg-[#005235] disabled:opacity-45 text-white flex items-center justify-center transition-colors shrink-0"
+                  >
+                    <Send className="w-4 h-4" />
+                  </button>
+                </form>
+              </>
+            ) : panelTab === 'live' ? (
+              <>
+                <div className="px-4 py-2.5 bg-[#eefaf3] dark:bg-[#0c211a] border-b border-slate-200/70 dark:border-white/10 flex flex-wrap items-center justify-between gap-2 shrink-0">
+                  <input
+                    type="text"
+                    value={liveVisitorName}
+                    onChange={(e) => setLiveVisitorName(e.target.value)}
+                    placeholder={tr('اسمك الاختياري...', 'Your name (optional)')}
+                    className="min-h-[34px] px-3 rounded-lg bg-white dark:bg-[#081712] border border-slate-200 dark:border-white/10 text-xs flex-1"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setPanelTab('submit')}
+                    className="text-[11px] font-bold text-[#006a46] dark:text-[#6cdba6] hover:underline shrink-0"
+                  >
+                    {tr('أو أرسل تذكرة رسمية ←', 'Or submit a ticket')}
+                  </button>
+                </div>
+
+                {liveMeetUrl && isSafeHttpsUrl(liveMeetUrl) && (
+                  <div className="mx-4 mt-3 rounded-2xl bg-[#006a46] text-white p-3.5 flex items-center justify-between gap-2 shrink-0">
+                    <div className="flex items-center gap-2 text-xs font-bold">
+                      <Video className="w-4 h-4 text-[#ffdea8] shrink-0" />
+                      <span>{tr('دعوة جلسة Google Meet مباشرة جاهزة', 'Direct Google Meet call invite ready')}</span>
+                    </div>
+                    <a
+                      href={liveMeetUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-3 py-1.5 rounded-lg bg-[#ffdea8] text-[#271900] text-xs font-extrabold shrink-0"
+                    >
+                      {tr('انضمام', 'Join')}
+                    </a>
+                  </div>
+                )}
+
+                <div ref={liveScrollRef} className="flex-1 overflow-y-auto p-4 space-y-2.5 bg-[#f4faff] dark:bg-[#06120e]">
+                  {liveMessages.length === 0 ? (
+                    <div className="rounded-2xl bg-white dark:bg-[#0d211a] border border-slate-200/80 dark:border-white/10 p-4 text-xs text-[#3e4a42] dark:text-slate-300 leading-relaxed space-y-2">
+                      <p className="font-bold text-[#0e1d25] dark:text-white">
+                        {tr('قناة التواصل المباشر والاستفسارات', 'Direct Communication Channel')}
+                      </p>
+                      <p>
+                        {tr(
+                          'اكتب رسالتك أو استفسارك هنا وسيتم حفظها والرد عليها في أقرب وقت ممكن بإذن الله.',
+                          'Write your message or inquiry here and it will be answered as soon as possible.',
+                        )}
+                      </p>
+                      <p className="text-[11px] text-[#6e7a71] dark:text-slate-400">
+                        {liveConnected
+                          ? tr('القناة النصية جاهزة للإرسال.', 'Text channel ready.')
+                          : tr('جاري تجهيز قناة الإرسال...', 'Preparing channel...')}
+                      </p>
+                    </div>
+                  ) : (
+                    liveMessages.map((m) => (
+                      <div
+                        key={m.id}
+                        className={`flex ${m.senderRole === 'visitor' ? 'justify-end' : 'justify-start'}`}
+                      >
+                        <div
+                          className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 text-xs sm:text-sm space-y-1 ${
+                            m.senderRole === 'visitor'
+                              ? 'bg-[#006a46] text-white'
+                              : 'bg-white dark:bg-[#0d211a] border border-slate-200/80 dark:border-white/10 text-[#0e1d25] dark:text-slate-100'
+                          }`}
+                        >
+                          <span className="block text-[10px] font-bold opacity-80">{m.senderName}</span>
+                          <p className="whitespace-pre-line">{m.text}</p>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                <form
+                  onSubmit={sendLiveMessage}
+                  className="p-3 bg-white dark:bg-[#091c15] border-t border-slate-200/80 dark:border-white/10 flex items-center gap-2 shrink-0"
+                >
+                  <input
+                    type="text"
+                    value={liveInput}
+                    onChange={(e) => setLiveInput(e.target.value)}
+                    placeholder={tr('اكتب رسالتك المباشرة هنا...', 'Write your direct message...')}
+                    className="flex-1 min-h-[44px] px-3.5 rounded-xl bg-[#f4faff] dark:bg-[#112921] border border-slate-200/80 dark:border-white/10 text-sm text-[#0e1d25] dark:text-white focus:outline-none focus:border-[#006a46]"
+                  />
+                  <button
+                    type="submit"
+                    disabled={!liveInput.trim()}
+                    aria-label={tr('إرسال', 'Send')}
+                    className="min-w-[44px] min-h-[44px] px-3.5 rounded-xl bg-[#006a46] hover:bg-[#005235] disabled:opacity-45 text-white flex items-center justify-center shrink-0"
                   >
                     <Send className="w-4 h-4" />
                   </button>

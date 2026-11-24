@@ -1,13 +1,10 @@
 import {
   BookOpen,
-  CheckCircle2,
   ClipboardList,
-  Copy,
   Eye,
   Globe,
   Heart,
   HeartHandshake,
-  Mail,
   MousePointerClick,
   Search,
   ShieldCheck,
@@ -38,7 +35,6 @@ export function SupportView({
   onNotify: (msg: string) => void;
 }) {
   const {tr, isEn, formatNumber} = useI18n();
-  const supportEmail = siteConfig.supportEmail?.trim() || 'ax1ax70@gmail.com';
   const [activeTab, setActiveTab] = useState<'ideas' | 'volunteer' | 'impact'>('ideas');
 
   // Suggestion state
@@ -63,9 +59,6 @@ export function SupportView({
   const [ticketQuery, setTicketQuery] = useState('');
   const [tickets, setTickets] = useState<VisitorTicketSummary[]>([]);
   const [loadingTickets, setLoadingTickets] = useState(false);
-
-  // Voluntary support email disclosure
-  const [showEmail, setShowEmail] = useState(false);
 
   const loadTickets = useCallback(async (qStr = '') => {
     setLoadingTickets(true);
@@ -184,60 +177,25 @@ export function SupportView({
         </p>
       </section>
 
-      {/* Dedicated Direct Assistance & Support Email Card (shown only when configured) */}
-      {supportEmail && (
-        <section className="card-3d rounded-2xl bg-[#fffbf2] dark:bg-[#13221c] border border-[#f2be5e]/45 dark:border-[#f2be5e]/25 p-5 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="flex items-start gap-3">
-            <div className="icon-3d w-11 h-11 rounded-2xl bg-[#ffdea8] text-[#271900] flex items-center justify-center shrink-0">
-              <Mail className="w-5 h-5" />
-            </div>
-            <div className="space-y-1">
-              <h2 className="text-base font-bold text-[#0e1d25] dark:text-white">
-                {tr('هل تحتاج إلى مساعدة أو لديك استفسار؟', 'Need technical assistance or have an inquiry?')}
-              </h2>
-              <p className="text-xs sm:text-sm text-[#3e4a42] dark:text-slate-300">
-                {tr(
-                  'تواصل معنا مباشرة عبر بريد الدعم الرسمي لأي مساعدة تقنية أو استفسار حول المحتوى:',
-                  'Reach us directly via our official support email for technical help or content inquiries:',
-                )}
-              </p>
-              <span
-                dir="ltr"
-                className="inline-block text-sm font-bold text-[#006a46] dark:text-[#6cdba6] select-all"
-              >
-                {supportEmail}
-              </span>
-            </div>
+      {/* Private In-App Support Notice */}
+      <section className="card-3d rounded-2xl bg-[#fffbf2] dark:bg-[#13221c] border border-[#f2be5e]/45 dark:border-[#f2be5e]/25 p-5 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex items-start gap-3">
+          <div className="icon-3d w-11 h-11 rounded-2xl bg-[#ffdea8] text-[#271900] flex items-center justify-center shrink-0">
+            <ShieldCheck className="w-5 h-5" />
           </div>
-
-          <div className="flex flex-wrap items-center gap-2 shrink-0">
-            <a
-              href={`mailto:${supportEmail}?subject=${encodeURIComponent(
-                tr(`مساعدة واستفسار - ${siteConfig.appName}`, `Support & Inquiry - Mawaedh & Ibar`),
-              )}`}
-              className="min-h-[44px] px-4 py-2 rounded-xl bg-[#006a46] hover:bg-[#005235] text-white text-xs sm:text-sm font-bold flex items-center gap-2 whitespace-nowrap transition-colors"
-            >
-              <Mail className="w-4 h-4 shrink-0" />
-              <span>{tr('مراسلة الدعم', 'Email Support')}</span>
-            </a>
-            <button
-              type="button"
-              onClick={async () => {
-                try {
-                  await navigator.clipboard.writeText(supportEmail);
-                  onNotify(tr(`تم نسخ بريد الدعم: ${supportEmail}`, `Support email copied: ${supportEmail}`));
-                } catch {
-                  onNotify(tr(`بريد الدعم: ${supportEmail}`, `Support email: ${supportEmail}`));
-                }
-              }}
-              className="min-h-[44px] px-3.5 py-2 rounded-xl bg-white dark:bg-[#0b1f18] border border-slate-200/80 dark:border-white/10 text-[#0e1d25] dark:text-white text-xs font-bold flex items-center gap-1.5 whitespace-nowrap"
-            >
-              <Copy className="w-4 h-4 shrink-0" />
-              <span>{tr('نسخ البريد', 'Copy Email')}</span>
-            </button>
+          <div className="space-y-1">
+            <h2 className="text-base font-bold text-[#0e1d25] dark:text-white">
+              {tr('تواصل آمن مع حفظ خصوصية البيانات', 'Private & Secure Support Desk')}
+            </h2>
+            <p className="text-xs sm:text-sm text-[#3e4a42] dark:text-slate-300">
+              {tr(
+                'جميع المقترحات والاستفسارات تُرسل سراً عبر نموذج التذاكر أدناه وتُتابع برقم طلب (#REQ) دون نشر أي بيانات تواصل شخصية.',
+                'All inquiries and suggestions are routed securely through our #REQ ticket system with full privacy.',
+              )}
+            </p>
           </div>
-        </section>
-      )}
+        </div>
+      </section>
 
       <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-1">
         {[
@@ -461,30 +419,10 @@ export function SupportView({
               </h3>
               <p className="text-xs sm:text-sm text-[#3e4a42] dark:text-slate-300 leading-relaxed">
                 {tr(
-                  'التطبيق مجاني تماماً وخالٍ من الإعلانات. لمن أراد المساهمة في تكاليف الخوادم أو الصدقة الجارية، يمكنه التواصل مع الإدارة مباشرة.',
-                  'The platform is 100% free and ad-free. To contribute toward hosting costs or ongoing charity, you may reach administration directly.',
+                  'التطبيق مجاني تماماً وخالٍ من الإعلانات. لمن أراد المساهمة أو التطوع أو الاستفسار، يمكنه إرسال رسالة عبر نموذج المقترحات واستلام رقم متابعة فوري.',
+                  'The platform is 100% free and ad-free. You may reach administration securely via the ticket form.',
                 )}
               </p>
-              {supportEmail &&
-                (showEmail ? (
-                  <div className="p-3 rounded-xl bg-white dark:bg-[#0b2119] border border-[#f2be5e]/40 text-xs font-bold text-[#006a46] dark:text-[#6cdba6] flex items-center justify-between gap-2">
-                    <a href={`mailto:${supportEmail}`} dir="ltr" className="hover:underline">
-                      {supportEmail}
-                    </a>
-                    <CheckCircle2 className="w-4 h-4 shrink-0" />
-                  </div>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => setShowEmail(true)}
-                    className="w-full min-h-[48px] px-4 py-3 rounded-xl bg-[#ffc968] hover:bg-[#f2be5e] text-[#271900] font-bold text-sm transition-colors"
-                  >
-                    {tr(
-                      'أنا جاد في الرغبة بالدعم · إظهار البريد الإلكتروني',
-                      'Reveal Official Contact Email',
-                    )}
-                  </button>
-                ))}
             </div>
 
             <div className="p-4 rounded-xl bg-[#e8f6ff] dark:bg-[#112921] space-y-1">

@@ -25,6 +25,7 @@ import type {
 import {useI18n} from '../utils/i18n';
 import {resolveFontFamilyCss, resolveFontSizeSpec, useReadingPrefs} from '../utils/readingPrefs';
 import {getPublicSiteUrl} from '../utils/storage';
+import {ComingSoonState} from './ComingSoonState';
 
 const SCHOLAR_EN_MAP: Record<FatwaScholarId, string> = {
   hajouri: 'Sheikh Yahya Al-Hajouri',
@@ -578,22 +579,20 @@ export function FatawaView({
 
           {/* Local Fatwa Cards */}
           {filtered.length === 0 ? (
-            <div className="rounded-2xl bg-white dark:bg-[#0d211a] border border-slate-200/80 dark:border-white/10 p-10 text-center space-y-3">
-              <p className="text-base font-bold text-[#0e1d25] dark:text-white">
-                {tr('لا توجد فتاوى مطابقة لهذا البحث حالياً', 'No fatawa match your search criteria')}
-              </p>
-              <button
-                type="button"
-                onClick={() => {
-                  setSelectedScholar('all');
-                  setSelectedCategory('الكل');
-                  setQuery('');
-                }}
-                className="min-h-[44px] px-5 py-2 rounded-xl bg-[#006a46] text-white text-sm font-bold"
-              >
-                {tr('عرض جميع الفتاوى', 'Show All Fatawa')}
-              </button>
-            </div>
+            <ComingSoonState
+              badgeText={tr('مكتبة الفتاوى', 'Fatawa Library')}
+              title={tr('قريباً بإذن الله.. لا توجد فتاوى مطابقة حالياً', 'Coming Soon — No Matching Fatawa')}
+              description={tr(
+                'يمكنك إزالة الفلاتر لعرض جميع الفتاوى المعتمدة، أو ترقّب إضافة المزيد من الفتاوى الشرعية قريباً.',
+                'Reset filters to view all verified fatawa, or check back soon for new scholarly additions.',
+              )}
+              actionLabel={tr('عرض جميع الفتاوى', 'Show All Fatawa')}
+              onAction={() => {
+                setSelectedScholar('all');
+                setSelectedCategory('الكل');
+                setQuery('');
+              }}
+            />
           ) : (
             <div className="grid grid-cols-1 gap-4">
               {filtered.map((item) => {
@@ -1011,20 +1010,16 @@ export function FatawaView({
               </p>
             </div>
           ) : filteredArchive.length === 0 ? (
-            <div className="rounded-2xl bg-white dark:bg-[#0d211a] border border-slate-200/80 dark:border-white/10 p-10 text-center space-y-3">
-              <p className="text-sm font-bold text-[#0e1d25] dark:text-white">
-                {tr('لا توجد نتائج مطابقة في الأرشيف المباشر', 'No archive entries match this filter')}
-              </p>
-              <a
-                href="https://sh-yahia.net/fatawa.php"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex min-h-[42px] px-4 py-2 rounded-xl bg-[#006a46] text-white text-xs font-bold items-center gap-1.5"
-              >
-                <span>{tr('تصفح أرشيف الفتاوى الأصلي', 'Browse Official Fatawa Page')}</span>
-                <ExternalLink className="w-3.5 h-3.5" />
-              </a>
-            </div>
+            <ComingSoonState
+              badgeText={tr('الأرشيف المباشر', 'Live Archive')}
+              title={tr('قريباً — لا توجد نتائج مطابقة في الأرشيف المباشر', 'No Archive Matches Right Now')}
+              description={tr(
+                'جرّب البحث بكلمة أخرى أو تصفّح أرشيف الفتاوى الأصلي مباشرة.',
+                'Try another search term or browse the original official fatawa archive.',
+              )}
+              actionLabel={tr('مسح البحث', 'Clear Search')}
+              onAction={() => setQuery('')}
+            />
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
               {filteredArchive.map((item) => {

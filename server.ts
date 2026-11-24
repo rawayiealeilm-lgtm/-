@@ -6,17 +6,25 @@ import fs from 'fs';
 import http from 'http';
 import path from 'path';
 import {fileURLToPath} from 'url';
+import {WebSocket, WebSocketServer} from 'ws';
 import type {
   AdminGesture,
+  AdminMeetConfig,
   AdminMonthlyAnalytics,
   AdminRole,
+  AdminSectionScope,
   AppIcons,
   AutomationSettings,
   CardTheme,
+  CustomAdhkarItem,
+  CustomBookItem,
   DailyEngagementBucket,
+  DeafMuteVideoItem,
   FatwaItem,
   FatwaScholarId,
   Language,
+  LiveSupportMessage,
+  LiveSupportSession,
   MediaType,
   MessageInboxStatus,
   MonthlyAnalyticsPoint,
@@ -40,6 +48,7 @@ import type {
   VolunteerItem,
   YouTubeVideoItem,
 } from './src/types.ts';
+import {INITIAL_DEAF_MUTE_VIDEOS, appendOnlyMergeById} from './src/data/contentRepository.ts';
 import {INITIAL_VISITOR_REVIEWS} from './src/data/dawahCards.ts';
 import {
   ADHKAR_CATEGORIES,
@@ -66,6 +75,7 @@ import {
 interface StoredAccount {
   username: string;
   role: AdminRole;
+  assignedSection?: AdminSectionScope;
   passwordHash: string;
 }
 
@@ -89,6 +99,11 @@ interface StoreState {
   poetryItems: PoetryAnecdoteItem[];
   permanentArchive: PermanentArchiveItem[];
   motherOasisItems: MotherOasisItem[];
+  deafMuteVideos: DeafMuteVideoItem[];
+  customAdhkar: CustomAdhkarItem[];
+  customBooks: CustomBookItem[];
+  liveSupportSessions: LiveSupportSession[];
+  meetConfig: AdminMeetConfig;
   visitorReviews: VisitorReviewItem[];
   visitorAccounts: Record<string, StoredVisitorRecord>;
   nextTicketSeq: number;
@@ -119,8 +134,8 @@ function safeEqualHex(a: string, b: string): boolean {
 }
 
 const DEFAULT_ACCOUNTS: StoredAccount[] = [
-  {username: 'moalwbri', role: 'admin', passwordHash: hashPassword('715315541')},
-  {username: 'ax1ax70', role: 'editor', passwordHash: hashPassword('123456')},
+  {username: 'moalwbri', role: 'admin', assignedSection: 'all', passwordHash: hashPassword('715315541')},
+  {username: 'ax1ax70', role: 'editor', assignedSection: 'all', passwordHash: hashPassword('123456')},
 ];
 
 const __filename = fileURLToPath(import.meta.url);
@@ -166,6 +181,11 @@ const DEFAULT_SITE_APPEARANCE: SiteAppearanceConfig = {
   maintenanceMode: false,
 };
 
+const DEFAULT_MEET_CONFIG: AdminMeetConfig = {
+  visibility: 'hidden_admin_only',
+  activeRoomUrl: '',
+};
+
 function getDefaultStore(): StoreState {
   return {
     posts: INITIAL_POSTS,
@@ -180,6 +200,11 @@ function getDefaultStore(): StoreState {
     poetryItems: getInitialPoetryItems(),
     permanentArchive: [],
     motherOasisItems: INITIAL_MOTHER_OASIS_ITEMS,
+    deafMuteVideos: INITIAL_DEAF_MUTE_VIDEOS,
+    customAdhkar: [],
+    customBooks: [],
+    liveSupportSessions: [],
+    meetConfig: DEFAULT_MEET_CONFIG,
     visitorReviews: INITIAL_VISITOR_REVIEWS,
     visitorAccounts: {},
     nextTicketSeq: 1001,
@@ -213,32 +238,8 @@ function loadStore(): StoreState {
     const parsed = JSON.parse(raw) as Partial<StoreState>;
     const defaults = getDefaultStore();
     return {
-      posts: (() => {
-        if (!Array.isArray(parsed.posts) || parsed.posts.length === 0) {
-          return defaults.posts;
-        }
-        const existingIds = new Set(parsed.posts.map((p) => p.id));
-        const merged = [...parsed.posts];
-        for (const seedPost of INITIAL_POSTS) {
-          if (!existingIds.has(seedPost.id)) {
-            merged.push(seedPost);
-          }
-        }
-        return merged;
-      })(),
-      fatawa: (() => {
-        if (!Array.isArray(parsed.fatawa) || parsed.fatawa.length === 0) {
-          return defaults.fatawa;
-        }
-        const existingIds = new Set(parsed.fatawa.map((f) => f.id));
-        const merged = [...parsed.fatawa];
-        for (const seedFatwa of INITIAL_FATAWA) {
-          if (!existingIds.has(seedFatwa.id)) {
-            merged.push(seedFatwa);
-          }
-        }
-        return merged;
-      })(),
+      posts: appendOnlyMergeById(parsed.posts, INITIAL_POSTS),
+      fatawa: appendOnlyMergeById(parsed.fatawa, INITIAL_FATAWA),
       motherPrayersCount:
         typeof parsed.motherPrayersCount === 'number'
           ? parsed.motherPrayersCount
@@ -337,22 +338,28 @@ function loadStore(): StoreState {
           : defaults.authSecret,
       accounts:
         Array.isArray(parsed.accounts) && parsed.accounts.length >= 2
-          ? parsed.accounts
+          ? parsed.accounts.map((acc) => ({
+              ...acc,
+              assignedSection: acc.assignedSection || 'all',
+            }))
           : defaults.accounts,
       lastPoetryAiDate: typeof parsed.lastPoetryAiDate === 'string' ? parsed.lastPoetryAiDate : '',
-      poetryItems:
-        Array.isArray(parsed.poetryItems) && parsed.poetryItems.length > 0
-          ? parsed.poetryItems
-          : defaults.poetryItems,
+      poetryItems: appendOnlyMergeById(parsed.poetryItems, defaults.poetryItems),
       permanentArchive: Array.isArray(parsed.permanentArchive) ? parsed.permanentArchive : [],
-      motherOasisItems:
-        Array.isArray(parsed.motherOasisItems) && parsed.motherOasisItems.length > 0
-          ? parsed.motherOasisItems
-          : defaults.motherOasisItems,
-      visitorReviews:
-        Array.isArray(parsed.visitorReviews) && parsed.visitorReviews.length > 0
-          ? parsed.visitorReviews
-          : defaults.visitorReviews,
+      motherOasisItems: appendOnlyMergeById(parsed.motherOasisItems, defaults.motherOasisItems),
+      deafMuteVideos: appendOnlyMergeById(parsed.deafMuteVideos, defaults.deafMuteVideos),
+      customAdhkar: Array.isArray(parsed.customAdhkar) ? parsed.customAdhkar : [],
+      customBooks: Array.isArray(parsed.customBooks) ? parsed.customBooks : [],
+      liveSupportSessions: Array.isArray(parsed.liveSupportSessions)
+        ? parsed.liveSupportSessions.slice(0, 80)
+        : [],
+      meetConfig: parsed.meetConfig
+        ? {
+            ...DEFAULT_MEET_CONFIG,
+            ...parsed.meetConfig,
+          }
+        : DEFAULT_MEET_CONFIG,
+      visitorReviews: appendOnlyMergeById(parsed.visitorReviews, defaults.visitorReviews),
       visitorAccounts:
         parsed.visitorAccounts && typeof parsed.visitorAccounts === 'object'
           ? parsed.visitorAccounts
@@ -445,10 +452,15 @@ function saveStore(state: StoreState): void {
 
 let store = loadStore();
 
-function signToken(username: string, role: AdminRole): string {
+function signToken(
+  username: string,
+  role: AdminRole,
+  assignedSection: AdminSectionScope = 'all',
+): string {
   const payloadObj = {
     u: username,
     r: role,
+    s: assignedSection,
     // Long-lived session until admin manually signs out
     exp: Date.now() + 365 * 24 * 60 * 60 * 1000,
   };
@@ -457,7 +469,9 @@ function signToken(username: string, role: AdminRole): string {
   return `${payload}.${sig}`;
 }
 
-function verifyToken(token: string): {username: string; role: AdminRole} | null {
+function verifyToken(
+  token: string,
+): {username: string; role: AdminRole; assignedSection: AdminSectionScope} | null {
   try {
     const parts = token.split('.');
     if (parts.length !== 2) return null;
@@ -467,18 +481,25 @@ function verifyToken(token: string): {username: string; role: AdminRole} | null 
     const decoded = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as {
       u?: string;
       r?: AdminRole;
+      s?: AdminSectionScope;
       exp?: number;
     };
-    if (!decoded.u || (decoded.r !== 'admin' && decoded.r !== 'editor') || !decoded.exp) return null;
+    if (
+      !decoded.u ||
+      (decoded.r !== 'admin' && decoded.r !== 'editor' && decoded.r !== 'supervisor') ||
+      !decoded.exp
+    ) {
+      return null;
+    }
     if (Date.now() > decoded.exp) return null;
-    return {username: decoded.u, role: decoded.r};
+    return {username: decoded.u, role: decoded.r, assignedSection: decoded.s || 'all'};
   } catch {
     return null;
   }
 }
 
 interface AuthedRequest extends Request {
-  authUser?: {username: string; role: AdminRole};
+  authUser?: {username: string; role: AdminRole; assignedSection: AdminSectionScope};
 }
 
 function requireAuth(req: AuthedRequest, res: Response, next: NextFunction): void {
@@ -506,6 +527,12 @@ function requirePrimaryAdmin(req: AuthedRequest, res: Response, next: NextFuncti
 async function startServer() {
   const app = express();
   app.use(express.json({limit: '25mb'}));
+
+  const activeAdminSockets = new Set<WebSocket>();
+  const needsLiveEscalation = (msg: string): boolean =>
+    /تواصل|مقابلة|الصم|البكم|مشرف|إدارة|مشكلة|استفسار|دعم|مكالمة|فيديو|انضمام|وظيفة|عمل|مشاركة|متطوع|contact|admin|interview|deaf|support|help|call/i.test(
+      msg,
+    );
 
   // Open CORS & APK/PWA packaging compatibility headers
   app.use((req, res, next) => {
@@ -1053,12 +1080,22 @@ async function startServer() {
       lastPoetryAiDate: store.lastPoetryAiDate || '',
       permanentArchive: store.permanentArchive,
       motherOasisItems: store.motherOasisItems,
+      deafMuteVideos: store.deafMuteVideos,
+      customAdhkar: store.customAdhkar,
+      customBooks: store.customBooks,
+      meetConfig:
+        isAuthed || store.meetConfig.visibility === 'all_subscribers'
+          ? store.meetConfig
+          : {visibility: store.meetConfig.visibility, activeRoomUrl: ''},
       visitorReviews: visibleReviews,
       siteAppearance: store.siteAppearance,
       brandHandle: store.brandHandle,
       socialLinks: store.socialLinks,
       appIcons: store.appIcons,
-      siteConfig: store.siteConfig,
+      siteConfig: {
+        ...store.siteConfig,
+        supportEmail: isAuthed ? store.siteConfig.supportEmail : '',
+      },
     });
   });
 
@@ -2078,12 +2115,17 @@ async function startServer() {
       .slice(0, 8)
       .map((m) => `- [${m.chapter}] ${m.title}: ${m.body.slice(0, 120)}...`)
       .join('\n');
-    const uploadedBooksSummary = Array.isArray(body.uploadedBooks) && body.uploadedBooks.length > 0
-      ? body.uploadedBooks
-          .slice(0, 20)
-          .map((b) => `- ${String(b.title || '').trim()} (${String(b.author || 'المكتبة العلمية').trim()})`)
-          .join('\n')
-      : 'كتب الشيخ يحيى الحجوري والأئمة الكبار ومشايخ دار الحديث داخل قسم المكتبة العلمية';
+    const combinedUploadedBooks = [
+      ...(Array.isArray(body.uploadedBooks) ? body.uploadedBooks : []),
+      ...store.customBooks.map((b) => ({title: b.title, author: b.author, section: b.section})),
+    ];
+    const uploadedBooksSummary =
+      combinedUploadedBooks.length > 0
+        ? combinedUploadedBooks
+            .slice(0, 35)
+            .map((b) => `- ${String(b.title || '').trim()} (${String(b.author || 'المكتبة العلمية').trim()})`)
+            .join('\n')
+        : 'كتب الشيخ يحيى الحجوري والأئمة الكبار ومشايخ دار الحديث داخل قسم المكتبة العلمية';
 
     const sadaScholarsList = SADA_AL_KHAIR_SCHOLARS.map((s) => s.name).join('، ');
     const poetsList = SADA_SUNNAH_POETS.map((p) => p.name).join('، ');
@@ -2102,10 +2144,10 @@ APPROVED AHLUS-SUNNAH SCHOLARS & SECTIONS:
    - الرئيسية (مواعظ وعبر + اختصارات سريعة + الورد اليومي)
    - المصحف الشريف (١١٤ سورة · ٦٠٤ صفحات بالرسم العثماني + تفسير ٥ أئمة بـ ٧ لغات + وضع القراءة المركزة)
    - الأذكار والأدعية الجامعة (٨ أبواب مرتبة تشمل باب وقفة بر ووفاء + عداد الحسنات وإنجاز اليوم والشهر والإجمالي العام)
-   - قسم الصم والبكم (بإدارة المهندس يونس عبدالكريم — قريباً بإذن الله)
+   - قسم الصم والبكم (بإدارة المهندس يونس عبدالكريم)
    - الفتاوى (فتاوى الشيخ يحيى الحجوري والأئمة الكبار)
    - المكتبة العلمية وصدى الخير (مؤلفات الشيخ يحيى الحجوري، مكتبة الأئمة الكبار، مشايخ وطلاب دار الحديث، مشغل تيليجرام المباشر، وقراء/تحميل ملفات PDF)
-   - البطاقات الدعوية، واحة الشعر والطرائف، الأرشيف الشامل الدائم، آراء وتقييمات الزوار، الدعم ومتابعة التذاكر.
+   - البطاقات الدعوية، واحة الشعر والطرائف، الأرشيف الشامل الدائم، آراء وتقييمات الزوار، عن الموقع والدعم والمشاركة ومتابعة التذاكر.
 
 UPLOADED & INTERNAL BOOKS INDEX:
 ${uploadedBooksSummary}
@@ -2126,7 +2168,8 @@ STRICT GROUNDING & SAFETY RULES (MANDATORY):
 1. NEVER quote, recommend, or cite any scholar, preacher, thinker, or group outside authentic Salaf Imams (such as Ibn Taymiyyah, Ibn Al-Qayyim, Ibn Kathir, Al-Bukhari, Muslim) and the approved Salafi scholars listed above. Strictly avoid any partisan or non-Salafi figures.
 2. NEVER output ANY external URLs, website domains, HTTP/HTTPS links, or send visitors to external book websites! Always direct the visitor to the relevant section INSIDE this application (such as: «قسم المكتبة العلمية»، «قسم الفتاوى»، «قسم المصحف الشريف والتفسير»، «قسم الأذكار والأدعية الجامعة»، «واحة الداعية الفاضلة أمي»).
 3. Never fabricate weak or unauthenticated hadiths.
-4. Never mention API keys, admin credentials, or internal code details.`;
+4. Never claim, suggest, or hint whether any human admin or staff member is currently online or connected.
+5. Never mention API keys, admin credentials, or internal code details.`;
 
     const safeHistory = Array.isArray(body.history)
       ? body.history
@@ -2194,7 +2237,8 @@ STRICT GROUNDING & SAFETY RULES (MANDATORY):
         return;
       }
 
-      res.json({reply: replyText});
+      const offerLiveConnect = activeAdminSockets.size > 0 && needsLiveEscalation(userMessage);
+      res.json({reply: replyText, offerLiveConnect});
     } catch {
       res.status(503).json({
         error:
@@ -2815,14 +2859,16 @@ STRICT GROUNDING & SAFETY RULES (MANDATORY):
       ok: true,
       username: req.authUser?.username,
       role: req.authUser?.role,
+      assignedSection: req.authUser?.assignedSection || 'all',
       suggestions: store.suggestions,
       volunteers: store.volunteers,
       automationSettings: store.automationSettings,
       siteAppearance: store.siteAppearance,
+      meetConfig: store.meetConfig,
     });
   });
 
-  // Hidden Admin/Editor Username+Password Login
+  // Hidden Admin/Editor/Supervisor Username+Password Login
   app.post('/api/admin/login', (req, res) => {
     const {username, password} = req.body as {username?: string; password?: string};
     const u = (username || '').trim();
@@ -2832,16 +2878,19 @@ STRICT GROUNDING & SAFETY RULES (MANDATORY):
       res.status(401).json({ok: false, error: 'اسم المستخدم أو كلمة المرور غير صحيحة'});
       return;
     }
-    const token = signToken(account.username, account.role);
+    const scope = account.assignedSection || 'all';
+    const token = signToken(account.username, account.role, scope);
     res.json({
       ok: true,
       token,
       username: account.username,
       role: account.role,
+      assignedSection: scope,
       suggestions: store.suggestions,
       volunteers: store.volunteers,
       automationSettings: store.automationSettings,
       siteAppearance: store.siteAppearance,
+      meetConfig: store.meetConfig,
     });
   });
 
@@ -3004,28 +3053,40 @@ STRICT GROUNDING & SAFETY RULES (MANDATORY):
     });
   });
 
-  // Primary Admin ONLY: list & add/remove additional editor/admin accounts for delegation
+  // Primary Admin ONLY: list & add/remove additional editor/supervisor/admin accounts for delegation
   app.get('/api/admin/accounts', requirePrimaryAdmin, (_req, res) => {
     res.json({
-      accounts: store.accounts.map((acc) => ({username: acc.username, role: acc.role})),
+      accounts: store.accounts.map((acc) => ({
+        username: acc.username,
+        role: acc.role,
+        assignedSection: acc.assignedSection || 'all',
+      })),
     });
   });
 
   app.post('/api/admin/accounts', requirePrimaryAdmin, (req, res) => {
-    const {username, password, role} = req.body as {
+    const {username, password, role, assignedSection} = req.body as {
       username?: string;
       password?: string;
       role?: AdminRole;
+      assignedSection?: AdminSectionScope;
     };
     const u = (username || '').trim();
     const p = (password || '').trim();
-    const r: AdminRole = role === 'admin' ? 'admin' : 'editor';
+    const r: AdminRole =
+      role === 'admin' ? 'admin' : role === 'supervisor' ? 'supervisor' : 'editor';
+    const scope: AdminSectionScope = r === 'admin' ? 'all' : assignedSection || 'all';
     if (!u || u.length < 3 || !p || p.length < 4) {
       res.status(400).json({error: 'اسم المستخدم (٣ أحرف فأكثر) وكلمة المرور (٤ أحرف فأكثر) مطلوبان'});
       return;
     }
     const existingIdx = store.accounts.findIndex((a) => a.username === u);
-    const nextAcc: StoredAccount = {username: u, role: r, passwordHash: hashPassword(p)};
+    const nextAcc: StoredAccount = {
+      username: u,
+      role: r,
+      assignedSection: scope,
+      passwordHash: hashPassword(p),
+    };
     if (existingIdx >= 0) {
       store.accounts[existingIdx] = nextAcc;
     } else {
@@ -3033,7 +3094,11 @@ STRICT GROUNDING & SAFETY RULES (MANDATORY):
     }
     saveStore(store);
     res.status(201).json({
-      accounts: store.accounts.map((acc) => ({username: acc.username, role: acc.role})),
+      accounts: store.accounts.map((acc) => ({
+        username: acc.username,
+        role: acc.role,
+        assignedSection: acc.assignedSection || 'all',
+      })),
     });
   });
 
@@ -3046,7 +3111,206 @@ STRICT GROUNDING & SAFETY RULES (MANDATORY):
     store.accounts = store.accounts.filter((a) => a.username !== target);
     saveStore(store);
     res.json({
-      accounts: store.accounts.map((acc) => ({username: acc.username, role: acc.role})),
+      accounts: store.accounts.map((acc) => ({
+        username: acc.username,
+        role: acc.role,
+        assignedSection: acc.assignedSection || 'all',
+      })),
+    });
+  });
+
+  // Deaf & Mute YouTube Videos Manager (Admin / Editor / Supervisor)
+  app.post('/api/admin/deaf-mute-videos', requireAuth, (req, res) => {
+    const body = req.body as Partial<DeafMuteVideoItem>;
+    const title = (body.title || '').trim();
+    const description = (body.description || '').trim();
+    if (!title || !description) {
+      res.status(400).json({error: 'عنوان الفيديو والوصف مطلوبان'});
+      return;
+    }
+    const item: DeafMuteVideoItem = {
+      id: `dm_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 5)}`,
+      title: title.slice(0, 200),
+      description: description.slice(0, 2500),
+      benefitText: typeof body.benefitText === 'string' && body.benefitText.trim()
+        ? body.benefitText.trim().slice(0, 3000)
+        : undefined,
+      youtubeUrl: typeof body.youtubeUrl === 'string' && body.youtubeUrl.trim()
+        ? body.youtubeUrl.trim().slice(0, 400)
+        : undefined,
+      status: body.status === 'published' ? 'published' : 'upcoming',
+      category: (body.category || 'العقيدة والتوحيد').trim().slice(0, 80),
+      managerName: 'المهندس يونس عبدالكريم',
+      createdAt: new Date().toISOString(),
+    };
+    store.deafMuteVideos = [item, ...store.deafMuteVideos];
+    saveStore(store);
+    res.status(201).json({created: item, items: store.deafMuteVideos});
+  });
+
+  app.delete('/api/admin/deaf-mute-videos/:id', requireAuth, (req, res) => {
+    const {id} = req.params;
+    store.deafMuteVideos = store.deafMuteVideos.filter((v) => v.id !== id);
+    saveStore(store);
+    res.json({items: store.deafMuteVideos});
+  });
+
+  // Custom Adhkar Manager (Cloud-backed non-destructive additions)
+  app.post('/api/admin/adhkar', requireAuth, (req, res) => {
+    const body = req.body as Partial<CustomAdhkarItem>;
+    const text = (body.text || '').trim();
+    if (!text) {
+      res.status(400).json({error: 'نص الذكر أو الدعاء مطلوب'});
+      return;
+    }
+    const item: CustomAdhkarItem = {
+      id: `dhikr_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 5)}`,
+      chapterId: (body.chapterId || 'ch1_morning_evening').trim().slice(0, 80),
+      title: typeof body.title === 'string' && body.title.trim() ? body.title.trim().slice(0, 180) : undefined,
+      text: text.slice(0, 5000),
+      fadl: typeof body.fadl === 'string' && body.fadl.trim() ? body.fadl.trim().slice(0, 1800) : undefined,
+      targetCount: typeof body.targetCount === 'number' && body.targetCount >= 1
+        ? Math.min(1000, Math.round(body.targetCount))
+        : 1,
+      source: 'الأذكار والأدعية الجامعة',
+      createdAt: new Date().toISOString(),
+    };
+    store.customAdhkar = [item, ...store.customAdhkar];
+    saveStore(store);
+    res.status(201).json({created: item, items: store.customAdhkar});
+  });
+
+  app.delete('/api/admin/adhkar/:id', requireAuth, (req, res) => {
+    const {id} = req.params;
+    store.customAdhkar = store.customAdhkar.filter((d) => d.id !== id);
+    saveStore(store);
+    res.json({items: store.customAdhkar});
+  });
+
+  // Cloud Scientific Books Manager
+  app.post('/api/admin/books', requireAuth, (req, res) => {
+    const body = req.body as Partial<CustomBookItem>;
+    const title = (body.title || '').trim();
+    const author = (body.author || '').trim();
+    if (!title || !author) {
+      res.status(400).json({error: 'اسم الكتاب واسم المؤلف مطلوبان'});
+      return;
+    }
+    const section: CustomBookItem['section'] =
+      body.section === 'imams' || body.section === 'students' ? body.section : 'hajouri';
+    const item: CustomBookItem = {
+      id: `book_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 5)}`,
+      section,
+      title: title.slice(0, 220),
+      author: author.slice(0, 160),
+      category: (body.category || 'كتب علمية').trim().slice(0, 80),
+      summary: typeof body.summary === 'string' && body.summary.trim()
+        ? body.summary.trim().slice(0, 2000)
+        : undefined,
+      pdfUrl: typeof body.pdfUrl === 'string' && body.pdfUrl.trim() ? body.pdfUrl.trim().slice(0, 500) : 'coming_soon',
+      pages: typeof body.pages === 'number' ? Math.max(0, Math.round(body.pages)) : undefined,
+      sizeLabel: typeof body.sizeLabel === 'string' ? body.sizeLabel.slice(0, 40) : undefined,
+      createdAt: new Date().toISOString(),
+    };
+    store.customBooks = [item, ...store.customBooks];
+    saveStore(store);
+    res.status(201).json({created: item, items: store.customBooks});
+  });
+
+  app.delete('/api/admin/books/:id', requireAuth, (req, res) => {
+    const {id} = req.params;
+    store.customBooks = store.customBooks.filter((b) => b.id !== id);
+    saveStore(store);
+    res.json({items: store.customBooks});
+  });
+
+  // Hidden Google Meet Configuration (Deaf & Mute + Interviews + Future Subscribers Integration)
+  app.get('/api/admin/meet-config', requireAuth, (_req, res) => {
+    res.json({meetConfig: store.meetConfig});
+  });
+
+  app.put('/api/admin/meet-config', requireAuth, (req, res) => {
+    const body = req.body as Partial<AdminMeetConfig>;
+    const visibility =
+      body.visibility === 'deaf_mute_invited' || body.visibility === 'all_subscribers'
+        ? body.visibility
+        : 'hidden_admin_only';
+    const rawUrl = typeof body.activeRoomUrl === 'string' ? body.activeRoomUrl.trim().slice(0, 400) : store.meetConfig.activeRoomUrl;
+    if (rawUrl && !/^https:\/\/(meet\.google\.com|[\w.-]+)/i.test(rawUrl)) {
+      res.status(400).json({error: 'يرجى إدخال رابط يبدأ بـ https://'});
+      return;
+    }
+    store.meetConfig = {
+      visibility,
+      activeRoomUrl: rawUrl,
+      updatedAt: new Date().toISOString(),
+    };
+    saveStore(store);
+    res.json({meetConfig: store.meetConfig});
+  });
+
+  // Live Support Sessions Inbox for Admins
+  app.get('/api/admin/live-support', requireAuth, (_req, res) => {
+    res.json({sessions: store.liveSupportSessions});
+  });
+
+  // Online Applicant Interview Acceptance & Scoped Credential Issuance
+  app.post('/api/admin/interviews/accept-issue', requirePrimaryAdmin, (req, res) => {
+    const {volunteerId, username, password, role, assignedSection, meetUrl} = req.body as {
+      volunteerId?: string;
+      username?: string;
+      password?: string;
+      role?: AdminRole;
+      assignedSection?: AdminSectionScope;
+      meetUrl?: string;
+    };
+    const u = (username || '').trim();
+    if (!u || u.length < 3) {
+      res.status(400).json({error: 'اسم المستخدم للمتقدم مطلوب (٣ أحرف فأكثر)'});
+      return;
+    }
+    const volunteer = store.volunteers.find((v) => v.id === volunteerId);
+    if (!volunteer) {
+      res.status(404).json({error: 'طلب المتقدم غير موجود'});
+      return;
+    }
+    const tempPassword =
+      typeof password === 'string' && password.trim().length >= 4
+        ? password.trim()
+        : `Mawaedh@${crypto.randomBytes(3).toString('hex')}`;
+    const issuedRole: AdminRole =
+      role === 'admin' ? 'admin' : role === 'supervisor' ? 'supervisor' : 'editor';
+    const scope: AdminSectionScope = issuedRole === 'admin' ? 'all' : assignedSection || 'all';
+
+    const existingIdx = store.accounts.findIndex((a) => a.username === u);
+    const nextAcc: StoredAccount = {
+      username: u,
+      role: issuedRole,
+      assignedSection: scope,
+      passwordHash: hashPassword(tempPassword),
+    };
+    if (existingIdx >= 0) store.accounts[existingIdx] = nextAcc;
+    else store.accounts.push(nextAcc);
+
+    const nowIso = new Date().toISOString();
+    const roleLabel =
+      issuedRole === 'admin' ? 'مدير كامل' : issuedRole === 'supervisor' ? 'مشرف قسم' : 'محرر محتوى';
+    const noteText = `تم القبول بعد المقابلة وإصدار حساب ${roleLabel} (القسم: ${scope}) · اسم المستخدم: ${u}${meetUrl?.trim() ? ` · غرفة المقابلة: ${meetUrl.trim()}` : ''}`;
+    store.volunteers = store.volunteers.map((v) =>
+      v.id === volunteer.id
+        ? {...v, status: 'resolved', adminNote: noteText, updatedAt: nowIso}
+        : v,
+    );
+    saveStore(store);
+    res.status(201).json({
+      credentials: {
+        username: u,
+        tempPassword,
+        role: issuedRole,
+        assignedSection: scope,
+      },
+      suggestions: store.suggestions,
+      volunteers: store.volunteers,
     });
   });
 
@@ -3202,12 +3466,16 @@ STRICT GROUNDING & SAFETY RULES (MANDATORY):
       poetryItems: store.poetryItems,
       permanentArchive: store.permanentArchive,
       motherOasisItems: store.motherOasisItems,
+      deafMuteVideos: store.deafMuteVideos,
+      customAdhkar: store.customAdhkar,
+      customBooks: store.customBooks,
       visitorReviews: store.visitorReviews,
       socialLinks: store.socialLinks,
       appIcons: store.appIcons,
       siteConfig: store.siteConfig,
       siteAppearance: store.siteAppearance,
       automationSettings: store.automationSettings,
+      meetConfig: store.meetConfig,
       brandHandle: store.brandHandle,
       motherPrayersCount: store.motherPrayersCount,
       dailyStats: store.dailyStats,
@@ -3217,12 +3485,29 @@ STRICT GROUNDING & SAFETY RULES (MANDATORY):
 
   app.post('/api/admin/import', requirePrimaryAdmin, (req, res) => {
     const data = req.body as Partial<StoreState>;
-    if (Array.isArray(data.posts)) store.posts = data.posts;
-    if (Array.isArray(data.fatawa)) store.fatawa = data.fatawa;
-    if (Array.isArray(data.poetryItems)) store.poetryItems = data.poetryItems;
-    if (Array.isArray(data.permanentArchive)) store.permanentArchive = data.permanentArchive;
-    if (Array.isArray(data.motherOasisItems)) store.motherOasisItems = data.motherOasisItems;
-    if (Array.isArray(data.visitorReviews)) store.visitorReviews = data.visitorReviews;
+    if (Array.isArray(data.posts)) store.posts = appendOnlyMergeById(data.posts, store.posts);
+    if (Array.isArray(data.fatawa)) store.fatawa = appendOnlyMergeById(data.fatawa, store.fatawa);
+    if (Array.isArray(data.poetryItems)) {
+      store.poetryItems = appendOnlyMergeById(data.poetryItems, store.poetryItems);
+    }
+    if (Array.isArray(data.permanentArchive)) {
+      store.permanentArchive = appendOnlyMergeById(data.permanentArchive, store.permanentArchive);
+    }
+    if (Array.isArray(data.motherOasisItems)) {
+      store.motherOasisItems = appendOnlyMergeById(data.motherOasisItems, store.motherOasisItems);
+    }
+    if (Array.isArray(data.deafMuteVideos)) {
+      store.deafMuteVideos = appendOnlyMergeById(data.deafMuteVideos, store.deafMuteVideos);
+    }
+    if (Array.isArray(data.customAdhkar)) {
+      store.customAdhkar = appendOnlyMergeById(data.customAdhkar, store.customAdhkar);
+    }
+    if (Array.isArray(data.customBooks)) {
+      store.customBooks = appendOnlyMergeById(data.customBooks, store.customBooks);
+    }
+    if (Array.isArray(data.visitorReviews)) {
+      store.visitorReviews = appendOnlyMergeById(data.visitorReviews, store.visitorReviews);
+    }
     if (Array.isArray(data.socialLinks)) store.socialLinks = data.socialLinks;
     if (data.appIcons) store.appIcons = {...DEFAULT_APP_ICONS, ...data.appIcons};
     if (data.siteConfig) store.siteConfig = {...DEFAULT_SITE_CONFIG, ...data.siteConfig};
@@ -3230,6 +3515,7 @@ STRICT GROUNDING & SAFETY RULES (MANDATORY):
     if (data.automationSettings) {
       store.automationSettings = {...DEFAULT_AUTOMATION_SETTINGS, ...data.automationSettings};
     }
+    if (data.meetConfig) store.meetConfig = {...DEFAULT_MEET_CONFIG, ...data.meetConfig};
     if (typeof data.brandHandle === 'string' && data.brandHandle.trim()) {
       store.brandHandle = data.brandHandle.trim();
     }
@@ -3245,6 +3531,9 @@ STRICT GROUNDING & SAFETY RULES (MANDATORY):
       fatawa: store.fatawa,
       poetryItems: store.poetryItems,
       permanentArchive: store.permanentArchive,
+      deafMuteVideos: store.deafMuteVideos,
+      customAdhkar: store.customAdhkar,
+      customBooks: store.customBooks,
       socialLinks: store.socialLinks,
       appIcons: store.appIcons,
       siteConfig: store.siteConfig,
@@ -3255,6 +3544,170 @@ STRICT GROUNDING & SAFETY RULES (MANDATORY):
 
   const isProd = process.env.NODE_ENV === 'production';
   const httpServer = http.createServer(app);
+
+  // Real-time WebSocket Live Support & Private Meet Invites (/ws/live-support)
+  const wss = new WebSocketServer({noServer: true});
+  const wsSessionRooms = new Map<string, Set<WebSocket>>();
+
+  const broadcastSessionUpdate = (session: LiveSupportSession) => {
+    const payload = JSON.stringify({type: 'session_update', session});
+    const room = wsSessionRooms.get(session.id);
+    if (room) {
+      for (const client of room) {
+        if (client.readyState === WebSocket.OPEN) client.send(payload);
+      }
+    }
+    for (const adminSock of activeAdminSockets) {
+      if (adminSock.readyState === WebSocket.OPEN) adminSock.send(payload);
+    }
+  };
+
+  const upsertLiveSession = (opts: {
+    sessionId: string;
+    visitorName?: string;
+    topic?: LiveSupportSession['topic'];
+  }): LiveSupportSession => {
+    const cleanId = opts.sessionId.replace(/[^\w-]/g, '').slice(0, 64) || `sess_${Date.now().toString(36)}`;
+    const existing = store.liveSupportSessions.find((s) => s.id === cleanId);
+    if (existing) return existing;
+    const nowIso = new Date().toISOString();
+    const created: LiveSupportSession = {
+      id: cleanId,
+      visitorName: (opts.visitorName || 'زائر كريم').trim().slice(0, 60),
+      topic: opts.topic === 'deaf_mute' || opts.topic === 'interview' || opts.topic === 'ai_escalation' ? opts.topic : 'general',
+      status: 'open',
+      messages: [],
+      createdAt: nowIso,
+      updatedAt: nowIso,
+    };
+    store.liveSupportSessions = [created, ...store.liveSupportSessions].slice(0, 80);
+    saveStore(store);
+    return created;
+  };
+
+  wss.on('connection', (ws) => {
+    let attachedRole: 'visitor' | 'admin' = 'visitor';
+    let attachedSessionId = '';
+
+    ws.on('message', (rawData) => {
+      try {
+        const pkt = JSON.parse(String(rawData)) as {
+          type?: string;
+          role?: string;
+          token?: string;
+          sessionId?: string;
+          visitorName?: string;
+          topic?: LiveSupportSession['topic'];
+          senderRole?: 'visitor' | 'admin';
+          senderName?: string;
+          text?: string;
+          meetUrl?: string;
+        };
+
+        if (pkt.type === 'join') {
+          if (pkt.role === 'admin' && pkt.token && verifyToken(pkt.token)) {
+            attachedRole = 'admin';
+            activeAdminSockets.add(ws);
+            ws.send(JSON.stringify({type: 'sessions', sessions: store.liveSupportSessions}));
+            return;
+          }
+          if (pkt.sessionId) {
+            const session = upsertLiveSession({
+              sessionId: pkt.sessionId,
+              visitorName: pkt.visitorName,
+              topic: pkt.topic,
+            });
+            attachedSessionId = session.id;
+            let room = wsSessionRooms.get(session.id);
+            if (!room) {
+              room = new Set();
+              wsSessionRooms.set(session.id, room);
+            }
+            room.add(ws);
+            ws.send(JSON.stringify({type: 'session_update', session}));
+          }
+          return;
+        }
+
+        if (pkt.type === 'message' && typeof pkt.text === 'string' && pkt.text.trim()) {
+          const targetId = pkt.sessionId || attachedSessionId;
+          if (!targetId) return;
+          const isAdminSender = attachedRole === 'admin' && pkt.senderRole === 'admin';
+          const session = upsertLiveSession({
+            sessionId: targetId,
+            visitorName: pkt.visitorName,
+            topic: pkt.topic,
+          });
+          const msg: LiveSupportMessage = {
+            id: `msg_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 5)}`,
+            senderRole: isAdminSender ? 'admin' : 'visitor',
+            senderName: (pkt.senderName || (isAdminSender ? 'فريق الإشراف' : session.visitorName))
+              .trim()
+              .slice(0, 60),
+            text: pkt.text.trim().slice(0, 2000),
+            createdAt: new Date().toISOString(),
+          };
+          const updated: LiveSupportSession = {
+            ...session,
+            messages: [...session.messages.slice(-90), msg],
+            updatedAt: msg.createdAt,
+          };
+          store.liveSupportSessions = [
+            updated,
+            ...store.liveSupportSessions.filter((s) => s.id !== updated.id),
+          ].slice(0, 80);
+          saveStore(store);
+          broadcastSessionUpdate(updated);
+          if (!isAdminSender) {
+            void dispatchAdminTicketAlert(
+              `رسالة دردشة حية من ${updated.visitorName}: ${msg.text.slice(0, 120)}`,
+              {kind: 'live_chat', sessionId: updated.id, topic: updated.topic},
+            );
+          }
+          return;
+        }
+
+        if (pkt.type === 'meet_invite' && attachedRole === 'admin' && pkt.sessionId && pkt.meetUrl) {
+          const cleanUrl = pkt.meetUrl.trim();
+          if (!cleanUrl.startsWith('https://')) return;
+          const target = store.liveSupportSessions.find((s) => s.id === pkt.sessionId);
+          if (!target) return;
+          const updated: LiveSupportSession = {
+            ...target,
+            meetInviteUrl: cleanUrl.slice(0, 400),
+            updatedAt: new Date().toISOString(),
+          };
+          store.liveSupportSessions = [
+            updated,
+            ...store.liveSupportSessions.filter((s) => s.id !== updated.id),
+          ].slice(0, 80);
+          saveStore(store);
+          broadcastSessionUpdate(updated);
+        }
+      } catch {
+        // Ignore malformed socket frames
+      }
+    });
+
+    ws.on('close', () => {
+      activeAdminSockets.delete(ws);
+      if (attachedSessionId) {
+        wsSessionRooms.get(attachedSessionId)?.delete(ws);
+      }
+    });
+  });
+
+  httpServer.on('upgrade', (req, socket, head) => {
+    try {
+      const url = new URL(req.url || '/', 'http://localhost');
+      if (url.pathname !== '/ws/live-support') return;
+      wss.handleUpgrade(req, socket, head, (ws) => {
+        wss.emit('connection', ws, req);
+      });
+    } catch {
+      socket.destroy();
+    }
+  });
 
   if (!isProd) {
     const {createServer: createViteServer} = await import('vite');

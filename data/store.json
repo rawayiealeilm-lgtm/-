@@ -1325,7 +1325,7 @@
   ],
   "motherPrayersCount": 0,
   "visitorsCount": 1,
-  "clicksCount": 28,
+  "clicksCount": 37,
   "lastNafahatDate": "2026-11-24",
   "lastNafahatUpdatedAt": "2026-11-24T10:44:46.497Z",
   "lastNafahatSource": "ai",
@@ -1494,12 +1494,14 @@
     {
       "username": "moalwbri",
       "role": "admin",
-      "passwordHash": "d5c804da0ec3f680e29a9ee558a7b51cd353d8fee5c6d29e8c752f75865aee4c"
+      "passwordHash": "d5c804da0ec3f680e29a9ee558a7b51cd353d8fee5c6d29e8c752f75865aee4c",
+      "assignedSection": "all"
     },
     {
       "username": "ax1ax70",
       "role": "editor",
-      "passwordHash": "979ffdaa9428beafbf54fca2c0ec0fd5483b56d89aaf06768f7b8637b042ffb8"
+      "passwordHash": "979ffdaa9428beafbf54fca2c0ec0fd5483b56d89aaf06768f7b8637b042ffb8",
+      "assignedSection": "all"
     }
   ],
   "lastPoetryAiDate": "2026-11-24",
@@ -1672,6 +1674,48 @@
       "createdAt": "2026-11-20T10:00:00.000Z"
     }
   ],
+  "deafMuteVideos": [
+    {
+      "id": "dm_vid_intro_khutbah",
+      "title": "سلسلة خطب ودروس العقيدة والرقائق بلغة الإشارة الميسّرة",
+      "description": "سلسلة مرئية مخصّصة لتقريب أصول التوحيد وأركان الإسلام ومواعظ السلف الصالح لإخواننا الصم والبكم بأسلوب بصري واضح.",
+      "benefitText": "يجري تجهيز الحلقات المرئية بلغة الإشارة بالتنسيق مع قناة المشرف على يوتيوب، لتظهر هنا مع المشغّل المباشر فور النشر بإذن الله.",
+      "youtubeUrl": "",
+      "status": "upcoming",
+      "category": "العقيدة والتوحيد",
+      "managerName": "المهندس يونس عبدالكريم",
+      "createdAt": "2026-11-20T09:00:00.000Z"
+    },
+    {
+      "id": "dm_vid_wudu_salah",
+      "title": "صفة الوضوء والصلاة النبوية — شرح بصري وإشاري ميسّر",
+      "description": "بيان عملي مصور لأركان الوضوء وواجبات الصلاة وسننها مع نصوص مكتوبة واضحة تسهّل المتابعة والفهم.",
+      "benefitText": "سيتم ربط رابط الفيديو من قناة المشرف على يوتيوب فور انتهاء المونتاج والمراجعة العلمية.",
+      "youtubeUrl": "",
+      "status": "upcoming",
+      "category": "الطهارة والصلاة",
+      "managerName": "المهندس يونس عبدالكريم",
+      "createdAt": "2026-11-21T09:00:00.000Z"
+    },
+    {
+      "id": "dm_vid_adhkar_visual",
+      "title": "أذكار الصباح والمساء بلغة الإشارة والخط الواضح",
+      "description": "عرض مرئي مريح للأذكار اليومية الثابتة مع بيان فضلها ومعانيها بصياغة واضحة ومباشرة.",
+      "benefitText": "سيُنشر قريباً على القناة ويُضَمّن مشغّله مباشرة في هذه البطاقة.",
+      "youtubeUrl": "",
+      "status": "upcoming",
+      "category": "الأذكار والآداب",
+      "managerName": "المهندس يونس عبدالكريم",
+      "createdAt": "2026-11-22T09:00:00.000Z"
+    }
+  ],
+  "customAdhkar": [],
+  "customBooks": [],
+  "liveSupportSessions": [],
+  "meetConfig": {
+    "visibility": "hidden_admin_only",
+    "activeRoomUrl": ""
+  },
   "visitorReviews": [
     {
       "id": "rev_1",
@@ -1740,7 +1784,7 @@
     "2026-11-24": {
       "date": "2026-11-24",
       "visitors": 1,
-      "clicks": 8,
+      "clicks": 17,
       "sermonReads": 0,
       "sermonLikes": 0,
       "sermonComments": 0,

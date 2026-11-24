@@ -1,0 +1,302 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Reusable Hardened Primitives
+    function isValidId(id) {
+      return id is string && id.size() >= 2 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn()
+        && request.auth.token.email_verified == true
+        && (
+          request.auth.token.email in ['rawayiealeilm@gmail.com', 'ax1ax70@gmail.com']
+          || exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+        );
+    }
+
+    function isValidCreatedAt(data) {
+      return data.createdAt == request.time;
+    }
+
+    function hasImmutableCreatedAt(data) {
+      return data.createdAt == existing().createdAt;
+    }
+
+    function isValidAdminRecord(data) {
+      return data.keys().hasAll(['email', 'role', 'createdAt'])
+        && data.keys().hasOnly(['email', 'role', 'createdAt'])
+        && data.email is string && data.email.size() >= 5 && data.email.size() <= 160
+        && data.role in ['admin', 'editor'];
+    }
+
+    function isValidSitePost(data) {
+      return data.keys().hasAll(['id', 'title', 'excerpt', 'body', 'author', 'category', 'mediaType', 'cardTheme', 'createdAt'])
+        && data.keys().hasOnly([
+          'id', 'title', 'excerpt', 'body', 'author', 'sourceLabel', 'category',
+          'mediaType', 'cardTheme', 'youtubeUrl', 'publishedAtLabel', 'likes',
+          'commentsCount', 'hidden', 'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.id)
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 260
+        && data.excerpt is string && data.excerpt.size() >= 1 && data.excerpt.size() <= 1200
+        && data.body is string && data.body.size() >= 1 && data.body.size() <= 30000
+        && data.author is string && data.author.size() >= 1 && data.author.size() <= 160
+        && data.category is string && data.category.size() >= 1 && data.category.size() <= 100
+        && data.mediaType in ['quote', 'sada', 'video', 'audio']
+        && data.cardTheme in ['emerald', 'azure', 'gold', 'midnight']
+        && (!('sourceLabel' in data) || (data.sourceLabel is string && data.sourceLabel.size() <= 160))
+        && (!('youtubeUrl' in data) || (data.youtubeUrl is string && data.youtubeUrl.size() <= 400))
+        && (!('publishedAtLabel' in data) || (data.publishedAtLabel is string && data.publishedAtLabel.size() <= 80))
+        && (!('likes' in data) || (data.likes is int && data.likes >= 0))
+        && (!('commentsCount' in data) || (data.commentsCount is int && data.commentsCount >= 0))
+        && (!('hidden' in data) || data.hidden is bool);
+    }
+
+    function isValidSiteFatwa(data) {
+      return data.keys().hasAll(['id', 'scholarId', 'scholarName', 'category', 'question', 'answer', 'source', 'createdAt'])
+        && data.keys().hasOnly(['id', 'scholarId', 'scholarName', 'category', 'question', 'answer', 'source', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && data.scholarId in ['hajouri', 'wadaei', 'binbaz', 'uthaymeen', 'albani']
+        && data.scholarName is string && data.scholarName.size() >= 1 && data.scholarName.size() <= 160
+        && data.category is string && data.category.size() >= 1 && data.category.size() <= 100
+        && data.question is string && data.question.size() >= 3 && data.question.size() <= 3000
+        && data.answer is string && data.answer.size() >= 3 && data.answer.size() <= 25000
+        && data.source is string && data.source.size() >= 1 && data.source.size() <= 240;
+    }
+
+    function isValidMotherOasisRecord(data) {
+      return data.keys().hasAll(['id', 'chapter', 'title', 'body', 'signature', 'createdAt'])
+        && data.keys().hasOnly(['id', 'chapter', 'title', 'body', 'signature', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && data.chapter in ['books', 'lectures', 'stories']
+        && data.title is string && data.title.size() >= 2 && data.title.size() <= 260
+        && data.body is string && data.body.size() >= 3 && data.body.size() <= 40000
+        && data.signature is string && data.signature.size() >= 2 && data.signature.size() <= 220;
+    }
+
+    function isValidPoetryRecord(data) {
+      return data.keys().hasAll(['id', 'kind', 'title', 'author', 'body', 'createdAt'])
+        && data.keys().hasOnly(['id', 'kind', 'title', 'author', 'summary', 'body', 'sourceUrl', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && data.kind in ['islamic_poetry', 'anecdote']
+        && data.title is string && data.title.size() >= 2 && data.title.size() <= 260
+        && data.author is string && data.author.size() >= 1 && data.author.size() <= 160
+        && (!('summary' in data) || (data.summary is string && data.summary.size() <= 600))
+        && data.body is string && data.body.size() >= 3 && data.body.size() <= 20000
+        && (!('sourceUrl' in data) || (data.sourceUrl is string && data.sourceUrl.size() <= 400));
+    }
+
+    function isValidDeafMuteVideo(data) {
+      return data.keys().hasAll(['id', 'title', 'description', 'status', 'category', 'managerName', 'createdAt'])
+        && data.keys().hasOnly(['id', 'title', 'description', 'benefitText', 'youtubeUrl', 'status', 'category', 'managerName', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && data.title is string && data.title.size() >= 2 && data.title.size() <= 240
+        && data.description is string && data.description.size() >= 2 && data.description.size() <= 3000
+        && (!('benefitText' in data) || (data.benefitText is string && data.benefitText.size() <= 4000))
+        && (!('youtubeUrl' in data) || (data.youtubeUrl is string && data.youtubeUrl.size() <= 500))
+        && data.status in ['published', 'upcoming']
+        && data.category is string && data.category.size() >= 1 && data.category.size() <= 100
+        && data.managerName is string && data.managerName.size() >= 2 && data.managerName.size() <= 140;
+    }
+
+    function isValidCustomAdhkar(data) {
+      return data.keys().hasAll(['id', 'chapterId', 'text', 'targetCount', 'source', 'createdAt'])
+        && data.keys().hasOnly(['id', 'chapterId', 'title', 'text', 'fadl', 'targetCount', 'source', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && data.chapterId is string && data.chapterId.size() >= 2 && data.chapterId.size() <= 80
+        && (!('title' in data) || (data.title is string && data.title.size() <= 200))
+        && data.text is string && data.text.size() >= 3 && data.text.size() <= 6000
+        && (!('fadl' in data) || (data.fadl is string && data.fadl.size() <= 2000))
+        && data.targetCount is int && data.targetCount >= 1 && data.targetCount <= 1000
+        && data.source is string && data.source.size() >= 1 && data.source.size() <= 240;
+    }
+
+    function isValidCustomBook(data) {
+      return data.keys().hasAll(['id', 'section', 'title', 'author', 'category', 'pdfUrl', 'createdAt'])
+        && data.keys().hasOnly(['id', 'section', 'title', 'author', 'category', 'summary', 'pdfUrl', 'pages', 'sizeLabel', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && data.section in ['hajouri', 'imams', 'students']
+        && data.title is string && data.title.size() >= 2 && data.title.size() <= 260
+        && data.author is string && data.author.size() >= 2 && data.author.size() <= 180
+        && data.category is string && data.category.size() >= 1 && data.category.size() <= 100
+        && (!('summary' in data) || (data.summary is string && data.summary.size() <= 2500))
+        && data.pdfUrl is string && data.pdfUrl.size() >= 4 && data.pdfUrl.size() <= 600
+        && (!('pages' in data) || (data.pages is int && data.pages >= 0 && data.pages <= 10000))
+        && (!('sizeLabel' in data) || (data.sizeLabel is string && data.sizeLabel.size() <= 60));
+    }
+
+    function isValidVisitorReview(data) {
+      return data.keys().hasAll(['id', 'name', 'rating', 'comment', 'hidden', 'createdAt'])
+        && data.keys().hasOnly(['id', 'name', 'rating', 'comment', 'role', 'hidden', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 120
+        && data.rating is int && data.rating >= 1 && data.rating <= 5
+        && data.comment is string && data.comment.size() >= 2 && data.comment.size() <= 2000
+        && (!('role' in data) || (data.role is string && data.role.size() <= 120))
+        && data.hidden is bool;
+    }
+
+    function isValidSiteSettings(data) {
+      return data.keys().hasAll(['appName', 'updatedAt'])
+        && data.keys().hasOnly([
+          'appName', 'appTagline', 'brandHandle', 'heroWisdomText', 'heroWisdomAuthor',
+          'motherPrayerText', 'maintenanceMode', 'updatedAt'
+        ])
+        && data.appName is string && data.appName.size() >= 1 && data.appName.size() <= 120
+        && (!('appTagline' in data) || (data.appTagline is string && data.appTagline.size() <= 260))
+        && (!('brandHandle' in data) || (data.brandHandle is string && data.brandHandle.size() <= 80))
+        && (!('heroWisdomText' in data) || (data.heroWisdomText is string && data.heroWisdomText.size() <= 2000))
+        && (!('heroWisdomAuthor' in data) || (data.heroWisdomAuthor is string && data.heroWisdomAuthor.size() <= 160))
+        && (!('motherPrayerText' in data) || (data.motherPrayerText is string && data.motherPrayerText.size() <= 2000))
+        && (!('maintenanceMode' in data) || data.maintenanceMode is bool);
+    }
+
+    // Connection test probe (safe single-doc get)
+    match /test/connection {
+      allow get: if true;
+    }
+
+    // Trusted Admins Collection
+    match /admins/{adminId} {
+      allow get: if isSignedIn() && (request.auth.uid == adminId || isAdmin());
+      allow create, update: if isAdmin() && isValidId(adminId) && isValidAdminRecord(incoming());
+      allow delete: if isAdmin() && isValidId(adminId) && adminId != request.auth.uid;
+    }
+
+    // Public Content Collections (Cloud Persisted Across Devices & Reinstalls)
+    match /site_posts/{postId} {
+      allow get: if isValidId(postId) && (existing().hidden != true || isAdmin());
+      allow list: if resource.data.hidden != true || isAdmin();
+      allow create: if isAdmin() && isValidId(postId) && isValidSitePost(incoming()) && incoming().id == postId && isValidCreatedAt(incoming());
+      allow update: if isAdmin() && isValidId(postId) && isValidSitePost(incoming())
+        && hasImmutableCreatedAt(incoming())
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'title', 'excerpt', 'body', 'author', 'sourceLabel', 'category',
+          'mediaType', 'cardTheme', 'youtubeUrl', 'publishedAtLabel', 'hidden', 'updatedAt'
+        ]);
+      allow delete: if isAdmin() && isValidId(postId);
+    }
+
+    match /site_fatawa/{fatwaId} {
+      allow get: if isValidId(fatwaId);
+      allow list: if resource.data.scholarId in ['hajouri', 'wadaei', 'binbaz', 'uthaymeen', 'albani'];
+      allow create: if isAdmin() && isValidId(fatwaId) && isValidSiteFatwa(incoming()) && incoming().id == fatwaId && isValidCreatedAt(incoming());
+      allow update: if isAdmin() && isValidId(fatwaId) && isValidSiteFatwa(incoming())
+        && hasImmutableCreatedAt(incoming())
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'scholarId', 'scholarName', 'category', 'question', 'answer', 'source', 'updatedAt'
+        ]);
+      allow delete: if isAdmin() && isValidId(fatwaId);
+    }
+
+    match /mother_oasis_items/{itemId} {
+      allow get: if isValidId(itemId);
+      allow list: if resource.data.chapter in ['books', 'lectures', 'stories'];
+      allow create: if isAdmin() && isValidId(itemId) && isValidMotherOasisRecord(incoming()) && incoming().id == itemId && isValidCreatedAt(incoming());
+      allow update: if isAdmin() && isValidId(itemId) && isValidMotherOasisRecord(incoming())
+        && hasImmutableCreatedAt(incoming())
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['chapter', 'title', 'body', 'signature', 'updatedAt']);
+      allow delete: if isAdmin() && isValidId(itemId);
+    }
+
+    match /poetry_items/{itemId} {
+      allow get: if isValidId(itemId);
+      allow list: if resource.data.kind in ['islamic_poetry', 'anecdote'];
+      allow create: if isAdmin() && isValidId(itemId) && isValidPoetryRecord(incoming()) && incoming().id == itemId && isValidCreatedAt(incoming());
+      allow update: if isAdmin() && isValidId(itemId) && isValidPoetryRecord(incoming())
+        && hasImmutableCreatedAt(incoming())
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['kind', 'title', 'author', 'summary', 'body', 'sourceUrl', 'updatedAt']);
+      allow delete: if isAdmin() && isValidId(itemId);
+    }
+
+    match /deaf_mute_videos/{videoId} {
+      allow get: if isValidId(videoId);
+      allow list: if resource.data.status in ['published', 'upcoming'];
+      allow create: if isAdmin() && isValidId(videoId) && isValidDeafMuteVideo(incoming()) && incoming().id == videoId && isValidCreatedAt(incoming());
+      allow update: if isAdmin() && isValidId(videoId) && isValidDeafMuteVideo(incoming())
+        && hasImmutableCreatedAt(incoming())
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'title', 'description', 'benefitText', 'youtubeUrl', 'status', 'category', 'managerName', 'updatedAt'
+        ]);
+      allow delete: if isAdmin() && isValidId(videoId);
+    }
+
+    match /custom_adhkar/{itemId} {
+      allow get: if isValidId(itemId);
+      allow list: if resource.data.targetCount >= 1;
+      allow create: if isAdmin() && isValidId(itemId) && isValidCustomAdhkar(incoming()) && incoming().id == itemId && isValidCreatedAt(incoming());
+      allow update: if isAdmin() && isValidId(itemId) && isValidCustomAdhkar(incoming())
+        && hasImmutableCreatedAt(incoming())
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'chapterId', 'title', 'text', 'fadl', 'targetCount', 'source', 'updatedAt'
+        ]);
+      allow delete: if isAdmin() && isValidId(itemId);
+    }
+
+    match /library_books/{bookId} {
+      allow get: if isValidId(bookId);
+      allow list: if resource.data.section in ['hajouri', 'imams', 'students'];
+      allow create: if isAdmin() && isValidId(bookId) && isValidCustomBook(incoming()) && incoming().id == bookId && isValidCreatedAt(incoming());
+      allow update: if isAdmin() && isValidId(bookId) && isValidCustomBook(incoming())
+        && hasImmutableCreatedAt(incoming())
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'section', 'title', 'author', 'category', 'summary', 'pdfUrl', 'pages', 'sizeLabel', 'updatedAt'
+        ]);
+      allow delete: if isAdmin() && isValidId(bookId);
+    }
+
+    match /visitor_reviews/{reviewId} {
+      allow get: if isValidId(reviewId) && (existing().hidden != true || isAdmin());
+      allow list: if resource.data.hidden != true || isAdmin();
+      allow create: if isValidId(reviewId)
+        && isValidVisitorReview(incoming())
+        && incoming().id == reviewId
+        && incoming().hidden == false
+        && isValidCreatedAt(incoming());
+      allow update: if isAdmin() && isValidId(reviewId) && isValidVisitorReview(incoming())
+        && hasImmutableCreatedAt(incoming())
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['hidden', 'updatedAt']);
+      allow delete: if isAdmin() && isValidId(reviewId);
+    }
+
+    match /site_settings/{docId} {
+      allow get: if isValidId(docId);
+      allow list: if resource.data.appName is string;
+      allow create: if isAdmin() && isValidId(docId) && isValidSiteSettings(incoming()) && incoming().updatedAt == request.time;
+      allow update: if isAdmin() && isValidId(docId) && isValidSiteSettings(incoming())
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'appName', 'appTagline', 'brandHandle', 'heroWisdomText', 'heroWisdomAuthor',
+          'motherPrayerText', 'maintenanceMode', 'updatedAt'
+        ]);
+    }
+  }
+}

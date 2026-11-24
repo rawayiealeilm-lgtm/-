@@ -5,7 +5,6 @@ import {
   Heart,
   HeartHandshake,
   LayoutGrid,
-  Mail,
   ShieldCheck,
   Sparkles,
 } from 'lucide-react';
@@ -20,7 +19,6 @@ export function AboutView({
   onGoSupport: () => void;
 }) {
   const {tr, isEn} = useI18n();
-  const supportEmail = siteConfig.supportEmail?.trim() || 'ax1ax70@gmail.com';
 
   return (
     <div className="space-y-6 pb-8">
@@ -266,15 +264,6 @@ export function AboutView({
               'تبقى منصتنا قائمةً بإذن الله ثم بدعائكم الصالح، ونشر الكلمة الطيبة، ومشاركة فريقنا المتطوع في خدمة المحتوى الإيماني الموثق.',
               'This platform thrives by Allah’s grace, your sincere prayers, and sharing verified beneficial knowledge.',
             )}
-            {supportEmail && (
-              <>
-                {' '}
-                {tr('ولأي مساعدة أو تواصل مباشر يرجى مراسلتنا على البريد:', 'For direct inquiries, reach us at:')}{' '}
-                <a href={`mailto:${supportEmail}`} dir="ltr" className="text-[#ffdea8] font-bold underline">
-                  {supportEmail}
-                </a>
-              </>
-            )}
           </p>
 
           <div className="flex flex-wrap items-center gap-2.5">
@@ -285,21 +274,12 @@ export function AboutView({
             >
               {tr('المساهمة والمقترحات والتطوع', 'Contribute, Suggest & Volunteer')}
             </button>
-            {supportEmail && (
-              <a
-                href={`mailto:${supportEmail}?subject=${encodeURIComponent(tr(`مساعدة - ${siteConfig.appName}`, 'Support - Mawaedh & Ibar'))}`}
-                className="min-h-[48px] px-5 py-2.5 rounded-xl bg-white/15 hover:bg-white/25 text-white text-sm font-bold flex items-center gap-2 transition-colors"
-              >
-                <Mail className="w-4 h-4 shrink-0" />
-                <span>{tr('بريد الدعم', 'Support Email')}</span>
-              </a>
-            )}
           </div>
         </section>
       </div>
 
       <p className="text-xs text-[#6e7a71] dark:text-slate-400 text-center pt-1">
-        {tr('بإشراف ومتابعة فريق مواعظ وعبر · مع تحيات أبو تراب', 'Supervised by Mawaedh & Ibar Team · Abu Turab')}
+        {tr('بإشراف ومتابعة فريق مواعظ وعبر', 'Supervised by Mawaedh & Ibar Team')}
       </p>
     </div>
   );

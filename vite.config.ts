@@ -169,6 +169,20 @@ export default defineConfig(() => {
     ],
     build: {
       sourcemap: false,
+      chunkSizeWarningLimit: 900,
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            if (!id.includes('node_modules')) return undefined;
+            if (id.includes('firebase')) return 'firebase-vendor';
+            if (id.includes('recharts') || id.includes('d3-')) return 'charts-vendor';
+            if (id.includes('lucide-react')) return 'icons-vendor';
+            if (id.includes('html2canvas')) return 'canvas-vendor';
+            if (id.includes('react-dom') || id.includes('/react/')) return 'react-vendor';
+            return undefined;
+          },
+        },
+      },
     },
     resolve: {
       alias: {

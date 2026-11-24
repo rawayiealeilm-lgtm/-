@@ -335,10 +335,18 @@ export function HomeView({
     {
       id: 'deaf-mute',
       label: tr('قسم الصم والبكم', 'Deaf & Mute Section'),
-      sublabel: tr('بإدارة م. يونس عبدالكريم · قريباً', 'By Eng. Younis Abdulkarim · Soon'),
+      sublabel: tr('بإدارة م. يونس عبدالكريم', 'By Eng. Younis Abdulkarim'),
       Icon: HandHeart,
       toneClass: 'bg-teal-50 dark:bg-teal-950/60 text-teal-800 dark:text-teal-300',
       onClick: () => onNavigateTab('deaf-mute'),
+    },
+    {
+      id: 'about-support',
+      label: tr('عن الموقع والدعم والمشاركة', 'About, Support & Share'),
+      sublabel: tr('الرسالة، الاقتراحات والتذاكر، مشاركة التطبيق', 'Mission, Proposals & Sharing'),
+      Icon: Sparkles,
+      toneClass: 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300',
+      onClick: () => onNavigateTab('about-support'),
     },
   ];
 

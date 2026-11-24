@@ -3,6 +3,7 @@ import {useEffect, useMemo, useState} from 'react';
 import type {PermanentArchiveItem, PoetryAnecdoteItem} from '../types';
 import {useI18n} from '../utils/i18n';
 import {resolveFontFamilyCss, resolveFontSizeSpec, useReadingPrefs} from '../utils/readingPrefs';
+import {ComingSoonState} from './ComingSoonState';
 
 type OasisTab = 'all' | 'islamic_poetry' | 'anecdote' | 'favorites' | 'permanent_archive';
 
@@ -213,9 +214,11 @@ export function PoetryOasisView({
             </span>
           </div>
           {filteredArchive.length === 0 ? (
-            <div className="rounded-3xl border border-slate-200/80 dark:border-white/10 bg-white dark:bg-[#0c211a] p-8 text-center text-sm text-[#6e7a71] dark:text-slate-400">
-              سيظهر هنا تلقائياً كل محتوى يتم توليده يومياً عبر الذكاء الاصطناعي (نفحات، قصص، شعر وطرائف) بتاريخ نشره دون حذف القديم.
-            </div>
+            <ComingSoonState
+              badgeText="قريباً بإذن الله"
+              title="الأرشيف الشامل بانتظار الإضافات الجديدة"
+              description="سيظهر هنا تلقائياً كل محتوى يتم توليده يومياً أو إضافته عبر المشرفين بتاريخ نشره دون حذف القديم."
+            />
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {filteredArchive.map((arch) => (
@@ -250,6 +253,14 @@ export function PoetryOasisView({
             </div>
           )}
         </div>
+      ) : filteredPoetry.length === 0 ? (
+        <ComingSoonState
+          badgeText="قريباً بإذن الله"
+          title="لا توجد أبيات أو نوادر مطابقة حالياً"
+          description="يمكنكم مسح كلمة البحث أو توليد طُرفة جديدة أو انتظار الإضافات الأدبية القادمة قريباً بإذن الله."
+          actionLabel={query ? 'عرض الكل' : undefined}
+          onAction={query ? () => setQuery('') : undefined}
+        />
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {filteredPoetry.map((item) => {
