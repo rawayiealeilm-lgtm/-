@@ -19,6 +19,10 @@ import type {
   CustomAdhkarItem,
   CustomBookItem,
   DailyEngagementBucket,
+  DeafMuteCommunityMessage,
+  DeafMuteJoinRequest,
+  DeafMuteMemberRole,
+  DeafMuteRoomSnapshot,
   DeafMuteVideoItem,
   FatwaItem,
   FatwaScholarId,
@@ -104,6 +108,13 @@ interface StoreState {
   customBooks: CustomBookItem[];
   liveSupportSessions: LiveSupportSession[];
   meetConfig: AdminMeetConfig;
+  deafMuteRoom: {
+    publishedLinkUrl: string;
+    linkTitle: string;
+    updatedAt: string;
+    requests: DeafMuteJoinRequest[];
+    messages: DeafMuteCommunityMessage[];
+  };
   visitorReviews: VisitorReviewItem[];
   visitorAccounts: Record<string, StoredVisitorRecord>;
   nextTicketSeq: number;
@@ -205,6 +216,13 @@ function getDefaultStore(): StoreState {
     customBooks: [],
     liveSupportSessions: [],
     meetConfig: DEFAULT_MEET_CONFIG,
+    deafMuteRoom: {
+      publishedLinkUrl: '',
+      linkTitle: 'لقاء المحادثة المباشرة لفئة الصم والبكم',
+      updatedAt: '',
+      requests: [],
+      messages: [],
+    },
     visitorReviews: INITIAL_VISITOR_REVIEWS,
     visitorAccounts: {},
     nextTicketSeq: 1001,
@@ -359,6 +377,26 @@ function loadStore(): StoreState {
             ...parsed.meetConfig,
           }
         : DEFAULT_MEET_CONFIG,
+      deafMuteRoom: parsed.deafMuteRoom
+        ? {
+            publishedLinkUrl:
+              typeof parsed.deafMuteRoom.publishedLinkUrl === 'string'
+                ? parsed.deafMuteRoom.publishedLinkUrl
+                : '',
+            linkTitle:
+              typeof parsed.deafMuteRoom.linkTitle === 'string' && parsed.deafMuteRoom.linkTitle.trim()
+                ? parsed.deafMuteRoom.linkTitle
+                : 'لقاء المحادثة المباشرة لفئة الصم والبكم',
+            updatedAt:
+              typeof parsed.deafMuteRoom.updatedAt === 'string' ? parsed.deafMuteRoom.updatedAt : '',
+            requests: Array.isArray(parsed.deafMuteRoom.requests)
+              ? parsed.deafMuteRoom.requests.slice(0, 120)
+              : [],
+            messages: Array.isArray(parsed.deafMuteRoom.messages)
+              ? parsed.deafMuteRoom.messages.slice(-120)
+              : [],
+          }
+        : defaults.deafMuteRoom,
       visitorReviews: appendOnlyMergeById(parsed.visitorReviews, defaults.visitorReviews),
       visitorAccounts:
         parsed.visitorAccounts && typeof parsed.visitorAccounts === 'object'
@@ -529,6 +567,92 @@ async function startServer() {
   app.use(express.json({limit: '25mb'}));
 
   const activeAdminSockets = new Set<WebSocket>();
+  const deafMuteRoomClients = new Map<WebSocket, {peerId: string}>();
+
+  const getDeafMuteOnlineCount = (): number => {
+    const uniquePeers = new Set<string>();
+    for (const [sock, info] of deafMuteRoomClients.entries()) {
+      if (sock.readyState === WebSocket.OPEN && info.peerId) {
+        uniquePeers.add(info.peerId);
+      }
+    }
+    return uniquePeers.size;
+  };
+
+  const resolveDeafMutePeerStatus = (peerId: string): DeafMuteMemberRole => {
+    const req = store.deafMuteRoom.requests.find((r) => r.id === peerId);
+    if (!req) return 'none';
+    if (req.status === 'pending') {
+      return req.requestedMode === 'watch' ? 'pending_watch' : 'pending_participate';
+    }
+    return req.status;
+  };
+
+  const buildDeafMuteRoomSnapshotForVisitor = (peerId: string): DeafMuteRoomSnapshot => {
+    const yourStatus = peerId ? resolveDeafMutePeerStatus(peerId) : 'none';
+    const isApproved = yourStatus === 'approved_viewer' || yourStatus === 'approved_participant';
+    const hasPublishedLink = Boolean(store.deafMuteRoom.publishedLinkUrl.trim());
+    const approvedCount = store.deafMuteRoom.requests.filter(
+      (r) => r.status === 'approved_viewer' || r.status === 'approved_participant',
+    ).length;
+    return {
+      onlineCount: getDeafMuteOnlineCount(),
+      approvedCount,
+      hasPublishedLink,
+      publishedLinkUrl: isApproved ? store.deafMuteRoom.publishedLinkUrl : '',
+      linkTitle: store.deafMuteRoom.linkTitle,
+      yourStatus,
+      messages: isApproved ? store.deafMuteRoom.messages.slice(-80) : [],
+    };
+  };
+
+  const buildDeafMuteRoomSnapshotForAdmin = (): DeafMuteRoomSnapshot => {
+    const approvedCount = store.deafMuteRoom.requests.filter(
+      (r) => r.status === 'approved_viewer' || r.status === 'approved_participant',
+    ).length;
+    return {
+      onlineCount: getDeafMuteOnlineCount(),
+      approvedCount,
+      hasPublishedLink: Boolean(store.deafMuteRoom.publishedLinkUrl.trim()),
+      publishedLinkUrl: store.deafMuteRoom.publishedLinkUrl,
+      linkTitle: store.deafMuteRoom.linkTitle,
+      yourStatus: 'approved_participant',
+      messages: store.deafMuteRoom.messages.slice(-80),
+      requests: store.deafMuteRoom.requests,
+    };
+  };
+
+  const broadcastDeafMuteRoom = () => {
+    for (const [sock, info] of deafMuteRoomClients.entries()) {
+      if (sock.readyState === WebSocket.OPEN) {
+        sock.send(
+          JSON.stringify({
+            type: 'dm_room_state',
+            room: buildDeafMuteRoomSnapshotForVisitor(info.peerId),
+          }),
+        );
+      }
+    }
+    const adminPayload = JSON.stringify({
+      type: 'dm_room_state',
+      room: buildDeafMuteRoomSnapshotForAdmin(),
+    });
+    for (const adminSock of activeAdminSockets) {
+      if (adminSock.readyState === WebSocket.OPEN) {
+        adminSock.send(adminPayload);
+      }
+    }
+  };
+
+  const canModerateDeafMute = (user?: AuthedRequest['authUser']): boolean =>
+    Boolean(
+      user &&
+        (user.role === 'admin' ||
+          user.assignedSection === 'all' ||
+          user.assignedSection === 'deaf-mute' ||
+          user.assignedSection === 'live-support'),
+    );
+
   const needsLiveEscalation = (msg: string): boolean =>
     /تواصل|مقابلة|الصم|البكم|مشرف|إدارة|مشكلة|استفسار|دعم|مكالمة|فيديو|انضمام|وظيفة|عمل|مشاركة|متطوع|contact|admin|interview|deaf|support|help|call/i.test(
       msg,
@@ -3254,6 +3378,97 @@ STRICT GROUNDING & SAFETY RULES (MANDATORY):
     res.json({sessions: store.liveSupportSessions});
   });
 
+  // Deaf & Mute Community Live Room Controls (Supervisor / Admin Only)
+  app.get('/api/admin/deaf-mute-room', requireAuth, (req: AuthedRequest, res) => {
+    if (!canModerateDeafMute(req.authUser)) {
+      res.status(403).json({error: 'هذه الصلاحية مخصصة لمسؤول قسم الصم والبكم أو المدير الرئيسي'});
+      return;
+    }
+    res.json({room: buildDeafMuteRoomSnapshotForAdmin()});
+  });
+
+  app.post('/api/admin/deaf-mute-room/link', requireAuth, (req: AuthedRequest, res) => {
+    if (!canModerateDeafMute(req.authUser)) {
+      res.status(403).json({error: 'هذه الصلاحية مخصصة لمسؤول قسم الصم والبكم أو المدير الرئيسي'});
+      return;
+    }
+    const {linkUrl, linkTitle} = req.body as {linkUrl?: string; linkTitle?: string};
+    const cleanUrl = (linkUrl || '').trim().slice(0, 400);
+    if (cleanUrl && !/^https:\/\//i.test(cleanUrl)) {
+      res.status(400).json({error: 'يرجى إدخال رابط يبدأ بـ https://'});
+      return;
+    }
+    store.deafMuteRoom.publishedLinkUrl = cleanUrl;
+    if (typeof linkTitle === 'string' && linkTitle.trim()) {
+      store.deafMuteRoom.linkTitle = linkTitle.trim().slice(0, 120);
+    }
+    store.deafMuteRoom.updatedAt = new Date().toISOString();
+    saveStore(store);
+    broadcastDeafMuteRoom();
+    res.json({room: buildDeafMuteRoomSnapshotForAdmin()});
+  });
+
+  app.post('/api/admin/deaf-mute-room/approve', requireAuth, (req: AuthedRequest, res) => {
+    if (!canModerateDeafMute(req.authUser)) {
+      res.status(403).json({error: 'هذه الصلاحية مخصصة لمسؤول قسم الصم والبكم أو المدير الرئيسي'});
+      return;
+    }
+    const {peerId, decision} = req.body as {
+      peerId?: string;
+      decision?: 'approved_participant' | 'approved_viewer' | 'rejected';
+    };
+    const target = store.deafMuteRoom.requests.find((r) => r.id === peerId);
+    if (!target) {
+      res.status(404).json({error: 'الطلب غير موجود'});
+      return;
+    }
+    const nextStatus =
+      decision === 'approved_viewer' || decision === 'rejected'
+        ? decision
+        : 'approved_participant';
+    const nowIso = new Date().toISOString();
+    target.status = nextStatus;
+    target.updatedAt = nowIso;
+    if (nextStatus === 'approved_participant' || nextStatus === 'approved_viewer') {
+      const noteText =
+        nextStatus === 'approved_participant'
+          ? `انضم «${target.name}» إلى المحادثة المباشرة بعد موافقة مسؤول القسم`
+          : `انضم «${target.name}» بصفة مشاهد بعد موافقة مسؤول القسم`;
+      store.deafMuteRoom.messages = [
+        ...store.deafMuteRoom.messages.slice(-100),
+        {
+          id: `dm_sys_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 5)}`,
+          senderId: 'system',
+          senderName: 'إدارة قسم الصم والبكم',
+          senderRole: 'supervisor',
+          text: noteText,
+          createdAt: nowIso,
+        },
+      ];
+    }
+    store.deafMuteRoom.updatedAt = nowIso;
+    saveStore(store);
+    broadcastDeafMuteRoom();
+    res.json({room: buildDeafMuteRoomSnapshotForAdmin()});
+  });
+
+  app.post('/api/admin/deaf-mute-room/clear', requireAuth, (req: AuthedRequest, res) => {
+    if (!canModerateDeafMute(req.authUser)) {
+      res.status(403).json({error: 'هذه الصلاحية مخصصة لمسؤول قسم الصم والبكم أو المدير الرئيسي'});
+      return;
+    }
+    const {clearMessages, clearRequests} = req.body as {
+      clearMessages?: boolean;
+      clearRequests?: boolean;
+    };
+    if (clearMessages) store.deafMuteRoom.messages = [];
+    if (clearRequests) store.deafMuteRoom.requests = [];
+    store.deafMuteRoom.updatedAt = new Date().toISOString();
+    saveStore(store);
+    broadcastDeafMuteRoom();
+    res.json({room: buildDeafMuteRoomSnapshotForAdmin()});
+  });
+
   // Online Applicant Interview Acceptance & Scoped Credential Issuance
   app.post('/api/admin/interviews/accept-issue', requirePrimaryAdmin, (req, res) => {
     const {volunteerId, username, password, role, assignedSection, meetUrl} = req.body as {
@@ -3596,6 +3811,11 @@ STRICT GROUNDING & SAFETY RULES (MANDATORY):
           role?: string;
           token?: string;
           sessionId?: string;
+          peerId?: string;
+          requestedMode?: 'watch' | 'participate';
+          action?: string;
+          linkUrl?: string;
+          linkTitle?: string;
           visitorName?: string;
           topic?: LiveSupportSession['topic'];
           senderRole?: 'visitor' | 'admin';
@@ -3605,11 +3825,15 @@ STRICT GROUNDING & SAFETY RULES (MANDATORY):
         };
 
         if (pkt.type === 'join') {
-          if (pkt.role === 'admin' && pkt.token && verifyToken(pkt.token)) {
-            attachedRole = 'admin';
-            activeAdminSockets.add(ws);
-            ws.send(JSON.stringify({type: 'sessions', sessions: store.liveSupportSessions}));
-            return;
+          if (pkt.role === 'admin' && pkt.token) {
+            const verified = verifyToken(pkt.token);
+            if (verified) {
+              attachedRole = 'admin';
+              activeAdminSockets.add(ws);
+              ws.send(JSON.stringify({type: 'sessions', sessions: store.liveSupportSessions}));
+              ws.send(JSON.stringify({type: 'dm_room_state', room: buildDeafMuteRoomSnapshotForAdmin()}));
+              return;
+            }
           }
           if (pkt.sessionId) {
             const session = upsertLiveSession({
@@ -3626,6 +3850,113 @@ STRICT GROUNDING & SAFETY RULES (MANDATORY):
             room.add(ws);
             ws.send(JSON.stringify({type: 'session_update', session}));
           }
+          return;
+        }
+
+        if (pkt.type === 'dm_room_subscribe') {
+          const cleanPeerId =
+            (pkt.peerId || `dm_peer_${Date.now().toString(36)}`).replace(/[^\w-]/g, '').slice(0, 64);
+          deafMuteRoomClients.set(ws, {peerId: cleanPeerId});
+          broadcastDeafMuteRoom();
+          return;
+        }
+
+        if (pkt.type === 'dm_room_request') {
+          const cleanPeerId = (pkt.peerId || deafMuteRoomClients.get(ws)?.peerId || '')
+            .replace(/[^\w-]/g, '')
+            .slice(0, 64);
+          if (!cleanPeerId) return;
+          deafMuteRoomClients.set(ws, {peerId: cleanPeerId});
+          const mode: 'watch' | 'participate' = pkt.requestedMode === 'watch' ? 'watch' : 'participate';
+          const name = (pkt.visitorName || 'زائر كريم').trim().slice(0, 60) || 'زائر كريم';
+          const nowIso = new Date().toISOString();
+          const existing = store.deafMuteRoom.requests.find((r) => r.id === cleanPeerId);
+          if (existing) {
+            existing.name = name;
+            existing.requestedMode = mode;
+            if (existing.status === 'rejected' || existing.status === 'approved_viewer' || mode === 'participate') {
+              existing.status = 'pending';
+            }
+            existing.updatedAt = nowIso;
+          } else {
+            const newReq: DeafMuteJoinRequest = {
+              id: cleanPeerId,
+              name,
+              requestedMode: mode,
+              status: 'pending',
+              createdAt: nowIso,
+              updatedAt: nowIso,
+            };
+            store.deafMuteRoom.requests = [newReq, ...store.deafMuteRoom.requests].slice(0, 120);
+          }
+          store.deafMuteRoom.updatedAt = nowIso;
+          saveStore(store);
+          broadcastDeafMuteRoom();
+          void dispatchAdminTicketAlert(
+            `طلب ${mode === 'watch' ? 'مشاهدة' : 'انضمام لمحادثة'} الصم والبكم من ${name}`,
+            {kind: 'deaf_mute_room_request', peerId: cleanPeerId, mode},
+          );
+          return;
+        }
+
+        if (pkt.type === 'dm_room_message' && typeof pkt.text === 'string' && pkt.text.trim()) {
+          const cleanPeerId = (pkt.peerId || deafMuteRoomClients.get(ws)?.peerId || '')
+            .replace(/[^\w-]/g, '')
+            .slice(0, 64);
+          const isAdminSender = attachedRole === 'admin';
+          const reqEntry = store.deafMuteRoom.requests.find((r) => r.id === cleanPeerId);
+          if (!isAdminSender && (!reqEntry || reqEntry.status !== 'approved_participant')) {
+            return;
+          }
+          const nowIso = new Date().toISOString();
+          const msg: DeafMuteCommunityMessage = {
+            id: `dm_msg_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 5)}`,
+            senderId: isAdminSender ? 'supervisor' : cleanPeerId,
+            senderName: isAdminSender
+              ? (pkt.senderName || 'المهندس يونس عبدالكريم · مسؤول القسم').trim().slice(0, 60)
+              : reqEntry?.name || 'مشارك',
+            senderRole: isAdminSender ? 'supervisor' : 'participant',
+            text: pkt.text.trim().slice(0, 1500),
+            createdAt: nowIso,
+          };
+          store.deafMuteRoom.messages = [...store.deafMuteRoom.messages.slice(-110), msg];
+          store.deafMuteRoom.updatedAt = nowIso;
+          saveStore(store);
+          broadcastDeafMuteRoom();
+          return;
+        }
+
+        if (pkt.type === 'dm_room_moderate' && attachedRole === 'admin') {
+          const nowIso = new Date().toISOString();
+          if (pkt.action === 'set_link' && typeof pkt.linkUrl === 'string') {
+            const cleanUrl = pkt.linkUrl.trim().slice(0, 400);
+            if (cleanUrl && !/^https:\/\//i.test(cleanUrl)) return;
+            store.deafMuteRoom.publishedLinkUrl = cleanUrl;
+            if (typeof pkt.linkTitle === 'string' && pkt.linkTitle.trim()) {
+              store.deafMuteRoom.linkTitle = pkt.linkTitle.trim().slice(0, 120);
+            }
+          } else if (pkt.action === 'clear_link') {
+            store.deafMuteRoom.publishedLinkUrl = '';
+          } else if (pkt.action === 'clear_messages') {
+            store.deafMuteRoom.messages = [];
+          } else if (
+            pkt.peerId &&
+            (pkt.action === 'approve_participant' || pkt.action === 'approve_viewer' || pkt.action === 'reject')
+          ) {
+            const target = store.deafMuteRoom.requests.find((r) => r.id === pkt.peerId);
+            if (target) {
+              target.status =
+                pkt.action === 'approve_participant'
+                  ? 'approved_participant'
+                  : pkt.action === 'approve_viewer'
+                    ? 'approved_viewer'
+                    : 'rejected';
+              target.updatedAt = nowIso;
+            }
+          }
+          store.deafMuteRoom.updatedAt = nowIso;
+          saveStore(store);
+          broadcastDeafMuteRoom();
           return;
         }
 
@@ -3693,6 +4024,10 @@ STRICT GROUNDING & SAFETY RULES (MANDATORY):
       activeAdminSockets.delete(ws);
       if (attachedSessionId) {
         wsSessionRooms.get(attachedSessionId)?.delete(ws);
+      }
+      if (deafMuteRoomClients.has(ws)) {
+        deafMuteRoomClients.delete(ws);
+        broadcastDeafMuteRoom();
       }
     });
   });

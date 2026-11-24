@@ -59,6 +59,7 @@ import type {
   ColorScheme,
   CustomAdhkarItem,
   CustomBookItem,
+  DeafMuteRoomSnapshot,
   DeafMuteVideoItem,
   EmblemVariant,
   FatwaItem,
@@ -409,6 +410,11 @@ export function AdminStudioView({
   const [meetConnecting, setMeetConnecting] = useState(false);
   const [creatingMeetRoom, setCreatingMeetRoom] = useState(false);
   const [confirmReplaceMeetRoom, setConfirmReplaceMeetRoom] = useState(false);
+  const [dmRoom, setDmRoom] = useState<DeafMuteRoomSnapshot | null>(null);
+  const [dmRoomLinkInput, setDmRoomLinkInput] = useState('');
+  const [dmRoomTitleInput, setDmRoomTitleInput] = useState('لقاء المحادثة المباشرة لفئة الصم والبكم');
+  const [dmRoomReplyInput, setDmRoomReplyInput] = useState('');
+  const [dmRoomSaving, setDmRoomSaving] = useState(false);
   const adminWsRef = useRef<WebSocket | null>(null);
 
   useEffect(() => {
@@ -1307,6 +1313,17 @@ export function AdminStudioView({
       })
       .catch(() => undefined);
 
+    fetch('/api/admin/deaf-mute-room', {headers: {Authorization: `Bearer ${authToken}`}})
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: {room?: DeafMuteRoomSnapshot} | null) => {
+        if (d?.room) {
+          setDmRoom(d.room);
+          if (d.room.publishedLinkUrl) setDmRoomLinkInput(d.room.publishedLinkUrl);
+          if (d.room.linkTitle) setDmRoomTitleInput(d.room.linkTitle);
+        }
+      })
+      .catch(() => undefined);
+
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const ws = new WebSocket(`${proto}//${window.location.host}/ws/live-support`);
     adminWsRef.current = ws;
@@ -1321,6 +1338,7 @@ export function AdminStudioView({
           type?: string;
           sessions?: LiveSupportSession[];
           session?: LiveSupportSession;
+          room?: DeafMuteRoomSnapshot;
         };
         if (pkt.type === 'sessions' && Array.isArray(pkt.sessions)) {
           setLiveSessions(pkt.sessions);
@@ -1329,6 +1347,8 @@ export function AdminStudioView({
             pkt.session!,
             ...prev.filter((s) => s.id !== pkt.session!.id),
           ]);
+        } else if (pkt.type === 'dm_room_state' && pkt.room) {
+          setDmRoom(pkt.room);
         }
       } catch {
         // Ignore malformed packets
@@ -1340,6 +1360,118 @@ export function AdminStudioView({
       adminWsRef.current = null;
     };
   }, [authToken]);
+
+  const handlePublishDeafMuteRoomLink = async (opts?: {clear?: boolean; overrideUrl?: string}) => {
+    const linkUrl = opts?.clear ? '' : (opts?.overrideUrl ?? dmRoomLinkInput).trim();
+    if (linkUrl && !linkUrl.startsWith('https://')) {
+      onNotify('يرجى إدخال رابط يبدأ بـ https://');
+      return;
+    }
+    setDmRoomSaving(true);
+    try {
+      const res = await fetch('/api/admin/deaf-mute-room/link', {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify({linkUrl, linkTitle: dmRoomTitleInput}),
+      });
+      const data = (await res.json()) as {room?: DeafMuteRoomSnapshot; error?: string};
+      if (!res.ok || !data.room) {
+        onNotify(data.error || 'تعذر تحديث رابط غرفة الصم والبكم');
+        return;
+      }
+      setDmRoom(data.room);
+      setDmRoomLinkInput(data.room.publishedLinkUrl || '');
+      onNotify(
+        linkUrl
+          ? 'تم إرسال رابط المحادثة المباشرة لقسم الصم والبكم بنجاح'
+          : 'تم إخفاء رابط المحادثة المباشرة عن قسم الصم والبكم',
+      );
+    } catch {
+      onNotify('تعذر الاتصال بالخادم');
+    } finally {
+      setDmRoomSaving(false);
+    }
+  };
+
+  const handleGenerateMeetForDeafMuteRoom = async () => {
+    setCreatingMeetRoom(true);
+    try {
+      if (!hasMeetAccessToken()) {
+        const {user} = await connectGoogleMeetWithPopup(DEFAULT_MEET_HOST_EMAIL);
+        setMeetOAuthConnected(true);
+        setMeetConnectedEmail(user.email || DEFAULT_MEET_HOST_EMAIL);
+      }
+      const space = await createGoogleMeetSpace();
+      setDmRoomLinkInput(space.meetingUri);
+      await handlePublishDeafMuteRoomLink({overrideUrl: space.meetingUri});
+    } catch (err) {
+      onNotify(err instanceof Error ? err.message : 'تعذر إنشاء غرفة Google Meet للقسم');
+    } finally {
+      setCreatingMeetRoom(false);
+    }
+  };
+
+  const handleModerateDeafMuteRequest = async (
+    peerId: string,
+    decision: 'approved_participant' | 'approved_viewer' | 'rejected',
+  ) => {
+    try {
+      const res = await fetch('/api/admin/deaf-mute-room/approve', {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify({peerId, decision}),
+      });
+      const data = (await res.json()) as {room?: DeafMuteRoomSnapshot; error?: string};
+      if (!res.ok || !data.room) {
+        onNotify(data.error || 'تعذر تنفيذ القرار');
+        return;
+      }
+      setDmRoom(data.room);
+      onNotify(
+        decision === 'approved_participant'
+          ? 'تمت الموافقة وربط الزائر في المحادثة المباشرة'
+          : decision === 'approved_viewer'
+            ? 'تمت الموافقة على المشاهدة فقط'
+            : 'تم رفض/إيقاف الطلب',
+      );
+    } catch {
+      onNotify('تعذر الاتصال بالخادم');
+    }
+  };
+
+  const handleSendDeafMuteRoomReply = () => {
+    const text = dmRoomReplyInput.trim();
+    if (!text) return;
+    if (adminWsRef.current && adminWsRef.current.readyState === WebSocket.OPEN) {
+      adminWsRef.current.send(
+        JSON.stringify({
+          type: 'dm_room_message',
+          senderName: `${adminUsername} · مسؤول القسم`,
+          text,
+        }),
+      );
+      setDmRoomReplyInput('');
+    } else {
+      onNotify('جارٍ إعادة الاتصال بغرفة المحادثة...');
+    }
+  };
+
+  const handleClearDeafMuteRoomMessages = async () => {
+    try {
+      const res = await fetch('/api/admin/deaf-mute-room/clear', {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify({clearMessages: true}),
+      });
+      const data = (await res.json()) as {room?: DeafMuteRoomSnapshot};
+      if (res.ok && data.room) {
+        setDmRoom(data.room);
+        onNotify('تم مسح رسائل المحادثة السابقة');
+      }
+    } catch {
+      onNotify('تعذر مسح الرسائل');
+    }
+  };
 
   const sendAdminLiveReply = (sessionId: string) => {
     const trimmed = liveReplyText.trim();
@@ -3293,9 +3425,206 @@ export function AdminStudioView({
         </section>
       )}
 
-      {/* Tab: Deaf & Mute Videos Manager (Eng. Younis Abdulkarim) */}
+      {/* Tab: Deaf & Mute Videos Manager + Live Community Room (Eng. Younis Abdulkarim) */}
       {tab === 'deaf-mute' && (
-        <section className="rounded-3xl bg-white dark:bg-[#0d211a] border border-slate-200/80 dark:border-white/10 p-5 sm:p-6 shadow-xs space-y-6">
+        <div className="space-y-6">
+          {/* Supervisor Controls for Deaf & Mute Peer Live Conversation & Conditional Link */}
+          <section className="rounded-3xl bg-white dark:bg-[#0d211a] border-2 border-[#006a46]/30 dark:border-[#6cdba6]/25 p-5 sm:p-6 shadow-xs space-y-5">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200/70 dark:border-white/10 pb-3.5">
+              <div>
+                <h2 className="text-lg font-extrabold text-[#0e1d25] dark:text-white flex items-center gap-2">
+                  <Radio className="w-5 h-5 text-[#006a46] dark:text-[#6cdba6]" />
+                  <span>غرفة المحادثة المباشرة لفئة الصم والبكم وطلبات الموافقة</span>
+                </h2>
+                <p className="text-xs text-[#6e7a71] dark:text-slate-400 mt-0.5">
+                  لا يظهر رابط المحادثة في قسم الصم والبكم إلا عند إرساله هنا، ولا يستطيع الزائر المشاهدة أو الانضمام للمحادثة إلا بعد موافقتك.
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 text-xs font-extrabold">
+                <span className="px-3 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-200 border border-emerald-500/30">
+                  المتصلون الآن: {(dmRoom?.onlineCount ?? 0).toLocaleString('ar-EG')}
+                </span>
+                <span className="px-3 py-1.5 rounded-xl bg-[#f4faff] dark:bg-[#112921] border border-slate-200 dark:border-white/10">
+                  المعتمدون: {(dmRoom?.approvedCount ?? 0).toLocaleString('ar-EG')}
+                </span>
+              </div>
+            </div>
+
+            {/* Publish / Hide Live Room Link */}
+            <div className="rounded-2xl bg-[#f4faff] dark:bg-[#112921] p-4 space-y-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <input
+                  type="text"
+                  value={dmRoomTitleInput}
+                  onChange={(e) => setDmRoomTitleInput(e.target.value)}
+                  placeholder="عنوان اللقاء المباشر (مثال: جلسة حوار الصم والبكم)"
+                  className="min-h-[42px] rounded-xl bg-white dark:bg-[#081712] border border-slate-200 dark:border-white/10 px-3.5 text-sm font-bold"
+                />
+                <input
+                  type="url"
+                  dir="ltr"
+                  value={dmRoomLinkInput}
+                  onChange={(e) => setDmRoomLinkInput(e.target.value)}
+                  placeholder="https://meet.google.com/xxx-xxxx-xxx"
+                  className="min-h-[42px] rounded-xl bg-white dark:bg-[#081712] border border-slate-200 dark:border-white/10 px-3.5 text-sm"
+                />
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  disabled={dmRoomSaving}
+                  onClick={() => void handlePublishDeafMuteRoomLink({clear: false})}
+                  className="min-h-[40px] px-4 py-2 rounded-xl bg-[#006a46] hover:bg-[#005235] text-white text-xs font-extrabold"
+                >
+                  {dmRoomSaving ? 'جاري النشر...' : 'إرسال وإظهار الرابط في قسم الصم والبكم'}
+                </button>
+                <button
+                  type="button"
+                  disabled={creatingMeetRoom || dmRoomSaving}
+                  onClick={() => void handleGenerateMeetForDeafMuteRoom()}
+                  className="min-h-[40px] px-4 py-2 rounded-xl bg-[#006389] hover:bg-[#005170] text-white text-xs font-extrabold flex items-center gap-1.5"
+                >
+                  <Video className="w-4 h-4" />
+                  <span>توليد غرفة Meet على {DEFAULT_MEET_HOST_EMAIL} وإرسالها</span>
+                </button>
+                {dmRoom?.hasPublishedLink && (
+                  <button
+                    type="button"
+                    disabled={dmRoomSaving}
+                    onClick={() => void handlePublishDeafMuteRoomLink({clear: true})}
+                    className="min-h-[40px] px-4 py-2 rounded-xl bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-500/25 text-xs font-extrabold"
+                  >
+                    إخفاء الرابط وإيقافه
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Pending & Approved Requests Queue */}
+            <div className="space-y-2.5">
+              <h3 className="text-sm font-extrabold text-[#0e1d25] dark:text-white">
+                طلبات الانضمام والمشاهدة ({(dmRoom?.requests?.length || 0).toLocaleString('ar-EG')})
+              </h3>
+              {!dmRoom?.requests || dmRoom.requests.length === 0 ? (
+                <p className="text-xs text-[#6e7a71] dark:text-slate-400">
+                  لا توجد طلبات حالياً — عند طلب أي زائر المشاهدة أو الانضمام للمحادثة سيظهر طلبه هنا فوراً للموافقة.
+                </p>
+              ) : (
+                <div className="space-y-2 max-h-60 overflow-y-auto">
+                  {dmRoom.requests.map((req) => (
+                    <div
+                      key={req.id}
+                      className="rounded-2xl border border-slate-200/80 dark:border-white/10 bg-[#fafcfb] dark:bg-[#081712] p-3 flex flex-wrap items-center justify-between gap-2.5"
+                    >
+                      <div className="space-y-0.5">
+                        <span className="text-sm font-extrabold text-[#0e1d25] dark:text-white block">
+                          {req.name}
+                        </span>
+                        <span className="text-[11px] font-bold text-[#6e7a71] dark:text-slate-400">
+                          الطلب: {req.requestedMode === 'watch' ? 'مشاهدة فقط' : 'انضمام وتفاعل مباشر'} · الحالة:{' '}
+                          <strong className="text-[#006a46] dark:text-[#6cdba6]">
+                            {req.status === 'pending'
+                              ? 'بانتظار الموافقة'
+                              : req.status === 'approved_participant'
+                                ? 'معتمد (مشارك)'
+                                : req.status === 'approved_viewer'
+                                  ? 'معتمد (مشاهد)'
+                                  : 'مرفوض'}
+                          </strong>
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => void handleModerateDeafMuteRequest(req.id, 'approved_participant')}
+                          className="min-h-[34px] px-3 rounded-lg bg-[#006a46] text-white text-[11px] font-extrabold"
+                        >
+                          موافقة (مشارك)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleModerateDeafMuteRequest(req.id, 'approved_viewer')}
+                          className="min-h-[34px] px-3 rounded-lg bg-[#006389] text-white text-[11px] font-extrabold"
+                        >
+                          موافقة (مشاهد)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleModerateDeafMuteRequest(req.id, 'rejected')}
+                          className="min-h-[34px] px-3 rounded-lg bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 text-[11px] font-extrabold"
+                        >
+                          رفض
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Live Community Messages Moderation */}
+            <div className="space-y-2.5 border-t border-slate-200/70 dark:border-white/10 pt-4">
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="text-sm font-extrabold text-[#0e1d25] dark:text-white">
+                  متابعة رسائل الغرفة المباشرة ({(dmRoom?.messages?.length || 0).toLocaleString('ar-EG')})
+                </h3>
+                {dmRoom?.messages && dmRoom.messages.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => void handleClearDeafMuteRoomMessages()}
+                    className="text-xs font-bold text-rose-600 hover:underline"
+                  >
+                    مسح السجل
+                  </button>
+                )}
+              </div>
+              <div className="h-44 overflow-y-auto rounded-2xl bg-[#f4faff] dark:bg-[#081712] border border-slate-200/70 dark:border-white/10 p-3 space-y-2">
+                {!dmRoom?.messages || dmRoom.messages.length === 0 ? (
+                  <p className="text-xs text-[#6e7a71] dark:text-slate-400 text-center py-8">
+                    لا توجد رسائل جماعية في الغرفة حالياً.
+                  </p>
+                ) : (
+                  dmRoom.messages.map((m) => (
+                    <div
+                      key={m.id}
+                      className={`rounded-xl px-3 py-2 text-xs ${
+                        m.senderRole === 'supervisor'
+                          ? 'bg-[#006a46] text-white'
+                          : 'bg-white dark:bg-[#0d211a] border border-slate-200/80 dark:border-white/10'
+                      }`}
+                    >
+                      <span className="font-extrabold block opacity-85">{m.senderName}</span>
+                      <p>{m.text}</p>
+                    </div>
+                  ))
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={dmRoomReplyInput}
+                  onChange={(e) => setDmRoomReplyInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleSendDeafMuteRoomReply();
+                    }
+                  }}
+                  placeholder="اكتب رسالة توجيهية لجميع المتصلين في غرفة الصم والبكم..."
+                  className="flex-1 min-h-[40px] rounded-xl bg-[#f4faff] dark:bg-[#081712] border border-slate-200 dark:border-white/10 px-3 text-sm"
+                />
+                <button
+                  type="button"
+                  onClick={handleSendDeafMuteRoomReply}
+                  className="min-h-[40px] px-4 rounded-xl bg-[#006a46] text-white text-xs font-extrabold"
+                >
+                  إرسال للغرفة
+                </button>
+              </div>
+            </div>
+          </section>
+
+          <section className="rounded-3xl bg-white dark:bg-[#0d211a] border border-slate-200/80 dark:border-white/10 p-5 sm:p-6 shadow-xs space-y-6">
           <div className="space-y-1">
             <h2 className="text-lg font-extrabold text-[#0e1d25] dark:text-white flex items-center gap-2">
               <HandHeart className="w-5 h-5 text-[#006a46] dark:text-[#6cdba6]" />
@@ -3387,7 +3716,8 @@ export function AdminStudioView({
               </div>
             ))}
           </div>
-        </section>
+          </section>
+        </div>
       )}
 
       {/* Tab: Custom Adhkar & Library Cloud Books Manager */}

@@ -82,6 +82,43 @@ export interface LiveSupportSession {
   messages: LiveSupportMessage[];
 }
 
+export type DeafMuteMemberRole =
+  | 'none'
+  | 'pending_watch'
+  | 'pending_participate'
+  | 'approved_viewer'
+  | 'approved_participant'
+  | 'rejected';
+
+export interface DeafMuteJoinRequest {
+  id: string;
+  name: string;
+  requestedMode: 'watch' | 'participate';
+  status: 'pending' | 'approved_viewer' | 'approved_participant' | 'rejected';
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DeafMuteCommunityMessage {
+  id: string;
+  senderId: string;
+  senderName: string;
+  senderRole: 'participant' | 'supervisor';
+  text: string;
+  createdAt: string;
+}
+
+export interface DeafMuteRoomSnapshot {
+  onlineCount: number;
+  approvedCount: number;
+  hasPublishedLink: boolean;
+  publishedLinkUrl: string;
+  linkTitle?: string;
+  yourStatus: DeafMuteMemberRole;
+  messages: DeafMuteCommunityMessage[];
+  requests?: DeafMuteJoinRequest[];
+}
+
 export type EmblemVariant = 'pinwheel' | 'crescent' | 'dome' | 'star' | 'book';
 
 export type ColorScheme = 'sky' | 'slate' | 'rose' | 'emerald' | 'amber' | 'cyan';
